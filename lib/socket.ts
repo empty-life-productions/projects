@@ -6,8 +6,8 @@ let socket: Socket | null = null;
 
 export const getSocket = (): Socket => {
     if (!socket) {
-        const url = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        socket = io(url, {
+        // By passing undefined as the URL, socket.io automatically uses the current window's URL
+        socket = io(undefined as any, {
             path: '/api/socket/io',
             addTrailingSlash: false,
             transports: ['polling', 'websocket'],
