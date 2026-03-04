@@ -27,71 +27,37 @@ interface TeamData {
 
 export default function PreMatchSelectionPage() {
     const params = useParams();
-    const code = params.code as string;
     const searchParams = useSearchParams();
-    const fixtureId = searchParams.get('fixture');
+    const code = params.code as string;
+    const fixtureId = searchParams.get('fixtureId');
     const router = useRouter();
     const { userId, isLoggedIn, setUser } = useUserStore();
 
-    const [loading, setLoading] = useState(true);
-    const [fixture, setFixture] = useState<any>(null);
     const [myTeam, setMyTeam] = useState<TeamData | null>(null);
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [isLocked, setIsLocked] = useState(false);
-    const [otherTeamLocked, setOtherTeamLocked] = useState(false);
-    const [hostId, setHostId] = useState<string | null>(null);
+    const [opponentTeam, setOpponentTeam] = useState<TeamData | null>(null);
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [battingOrder, setBattingOrder] = useState<string[]>([]);
+    const [captainId, setCaptainId] = useState<string>('');
+    const [wkId, setWkId] = useState<string>('');
+    const [openingBowlerId, setOpeningBowlerId] = useState<string>('');
+    const [loading, setLoading] = useState(true);
+    const [locked, setLocked] = useState(false);
+    const [opponentLocked, setOpponentLocked] = useState(false);
+    const [error, setError] = useState('');
 
-    const fetchData = useCallback(async () => {
-        try {
-            // Get league state to find fixture
-            const leagueRes = await fetch(`/api/league?roomCode=${code}`);
-            if (leagueRes.ok) {
-                const data = await leagueRes.json();
-                if (data.state) {
-                    const f = data.state.fixtures.find((f: any) => f.id === fixtureId);
-                    setFixture(f);
+    const roleColors: Record<string, string> = {
+        BATSMAN: '#4FC3F7',
+        BOWLER: '#EF5350',
+        ALL_ROUNDER: '#66BB6A',
+        WICKET_KEEPER: '#FFA726',
+    };
 
-                    // If fixture is already live, go to match
-                    if (f?.status === 'live') {
-                        router.push(`/match/${code}?fixture=${fixtureId}`);
-                        return;
-                    }
-
-                    // Find my team in the standings/teams list
-                    // Since LeagueState only has standings and fixtures, we need the full squads.
-                    // Full squads are currently in the AuctionState.
-                    const auctionRes = await fetch(`/api/auction?roomCode=${code}`);
-                    if (auctionRes.ok) {
-                        const auctionData = await auctionRes.json();
-                        const teams = auctionData.state.teams;
-                        const t = teams.find((t: any) => t.userId === userId);
-                        if (t) setMyTeam(t);
-                    }
-                }
-            }
-
-            // Get selection status for THIS specific match
-            // We can reuse /api/selection but we might need a fixtureId parameter?
-            // For now, let's assume /api/selection?roomCode=X&fixtureId=Y
-            const selRes = await fetch(`/api/selection?roomCode=${code}&fixtureId=${fixtureId}`);
-            if (selRes.ok) {
-                const selData = await selRes.json();
-                if (selData.selections) {
-                    if (userId && selData.selections[userId]) {
-                        setSelectedIds(new Set(selData.selections[userId]));
-                        setIsLocked(true);
-                    }
-                    // Check if the opponent is locked
-                    const opponentUserId = fixture?.homeTeamUserId === userId ? fixture?.awayTeamUserId : fixture?.homeTeamUserId;
-                    if (opponentUserId && selData.selections[opponentUserId]) {
-                        setOtherTeamLocked(true);
-                    }
-                }
-            }
-        } catch (err) {
-            console.error('Failed to fetch data:', err);
-        }
-    }, [code, fixtureId, userId, router, fixture?.homeTeamUserId, fixture?.awayTeamUserId]);
+    const roleEmoji: Record<string, string> = {
+        BATSMAN: '🏏',
+        BOWLER: '🎯',
+        ALL_ROUNDER: '⭐',
+        WICKET_KEEPER: '🧤',
+    };
 
     useEffect(() => {
         const init = async () => {
@@ -101,51 +67,155 @@ export default function PreMatchSelectionPage() {
                     if (res.ok) {
                         const data = await res.json();
                         setUser(data.userId, data.username);
-                    } else { router.push('/login'); return; }
-                } catch { router.push('/login'); return; }
+                    } else {
+                        router.push('/login');
+                        return;
+                    }
+                } catch {
+                    router.push('/login');
+                    return;
+                }
             }
 
-            const roomRes = await fetch(`/api/rooms/${code}`);
-            if (roomRes.ok) {
-                const roomData = await roomRes.json();
-                setHostId(roomData.room.hostId);
+            // Get auction state to find squads
+            const auctionRes = await fetch(`/api/auction?roomCode=${code}`);
+            if (!auctionRes.ok) return;
+            const auctionData = await auctionRes.json();
+            const auction = auctionData.state;
+            if (!auction) return;
+
+            // Determine teams for this fixture
+            if (fixtureId) {
+                const leagueRes = await fetch(`/api/league?roomCode=${code}`);
+                if (leagueRes.ok) {
+                    const leagueData = await leagueRes.json();
+                    const fixture = leagueData.state?.fixtures?.find((f: any) => f.id === fixtureId);
+                    if (fixture) {
+                        const home = auction.teams.find((t: any) => t.userId === fixture.homeTeamUserId);
+                        const away = auction.teams.find((t: any) => t.userId === fixture.awayTeamUserId);
+                        if (home?.userId === userId) {
+                            setMyTeam(home);
+                            setOpponentTeam(away);
+                        } else if (away?.userId === userId) {
+                            setMyTeam(away);
+                            setOpponentTeam(home);
+                        }
+                    }
+                }
+            } else {
+                const myTeamData = auction.teams.find((t: any) => t.userId === userId);
+                setMyTeam(myTeamData || null);
             }
 
-            await fetchData();
+            // Check existing selection
+            const selRes = await fetch(`/api/selection?roomCode=${code}${fixtureId ? `&fixtureId=${fixtureId}` : ''}&teamId=${userId}`);
+            if (selRes.ok) {
+                const selData = await selRes.json();
+                if (selData.selectedIds?.length === 11) {
+                    setSelectedIds(selData.selectedIds);
+                    setBattingOrder(selData.battingOrder || selData.selectedIds);
+                    setCaptainId(selData.captainId || '');
+                    setWkId(selData.wkId || '');
+                    setOpeningBowlerId(selData.openingBowlerId || '');
+                    setLocked(true);
+                }
+            }
+
             setLoading(false);
         };
         init();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-        const interval = setInterval(fetchData, 3000);
+    // Poll for opponent lock status
+    useEffect(() => {
+        if (!locked || !opponentTeam) return;
+        const interval = setInterval(async () => {
+            const res = await fetch(`/api/selection?roomCode=${code}${fixtureId ? `&fixtureId=${fixtureId}` : ''}&teamId=${opponentTeam.userId}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.selectedIds?.length === 11) {
+                    setOpponentLocked(true);
+                }
+            }
+        }, 2000);
         return () => clearInterval(interval);
-    }, [isLoggedIn, code, userId, router, setUser, fetchData]);
+    }, [locked, opponentTeam, code, fixtureId]);
 
     const handleTogglePlayer = (playerId: string) => {
-        if (isLocked) return;
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(playerId)) next.delete(playerId);
-            else if (next.size < 11) next.add(playerId);
-            return next;
+        if (locked) return;
+
+        const willRemove = selectedIds.includes(playerId);
+        const willAdd = !willRemove && selectedIds.length < 11;
+
+        if (willRemove) {
+            setSelectedIds(prev => prev.filter(id => id !== playerId));
+            setBattingOrder(prev => prev.filter(id => id !== playerId));
+            setCaptainId(c => c === playerId ? '' : c);
+            setWkId(w => w === playerId ? '' : w);
+            setOpeningBowlerId(o => o === playerId ? '' : o);
+        } else if (willAdd) {
+            setSelectedIds(prev => [...prev, playerId]);
+            setBattingOrder(prev => prev.includes(playerId) ? prev : [...prev, playerId]);
+        }
+    };
+
+    const handleMoveUp = (playerId: string) => {
+        setBattingOrder(prev => {
+            const idx = prev.indexOf(playerId);
+            if (idx <= 0) return prev;
+            const newOrder = [...prev];
+            [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
+            return newOrder;
+        });
+    };
+
+    const handleMoveDown = (playerId: string) => {
+        setBattingOrder(prev => {
+            const idx = prev.indexOf(playerId);
+            if (idx < 0 || idx >= prev.length - 1) return prev;
+            const newOrder = [...prev];
+            [newOrder[idx + 1], newOrder[idx]] = [newOrder[idx], newOrder[idx + 1]];
+            return newOrder;
         });
     };
 
     const handleLock = async () => {
-        if (selectedIds.size !== 11) return;
+        if (selectedIds.length !== 11) {
+            setError('Select exactly 11 players');
+            return;
+        }
+        if (!captainId) {
+            setError('Please select a Captain');
+            return;
+        }
+        if (!wkId) {
+            setError('Please select a Wicket Keeper');
+            return;
+        }
+        if (!openingBowlerId) {
+            setError('Please select an Opening Bowler');
+            return;
+        }
+
         try {
             const res = await fetch('/api/selection', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     roomCode: code,
-                    fixtureId: fixtureId,
                     teamId: userId,
-                    selectedIds: Array.from(selectedIds)
-                })
+                    selectedIds,
+                    battingOrder,
+                    captainId,
+                    wkId,
+                    openingBowlerId,
+                    fixtureId: fixtureId || undefined,
+                }),
             });
             if (res.ok) {
-                setIsLocked(true);
-                fetchData();
+                setLocked(true);
+                setError('');
             }
         } catch (err) {
             console.error('Lock failed:', err);
@@ -153,40 +223,23 @@ export default function PreMatchSelectionPage() {
     };
 
     const handleStartMatch = async () => {
-        // Host triggers match initialization
         try {
-            const matchRes = await fetch('/api/match', {
+            await fetch('/api/league', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'init',
+                    action: 'lockPreMatch',
                     roomCode: code,
                     fixtureId: fixtureId,
-                    // The API will now pull correct teams based on fixtureId
                 }),
             });
-
-            if (matchRes.ok) {
-                const matchData = await matchRes.json();
-                // Transition fixture to live
-                await fetch('/api/league', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'lockPreMatch',
-                        roomCode: code,
-                        fixtureId: fixtureId,
-                        matchId: matchData.state.matchId
-                    })
-                });
-                router.push(`/match/${code}?fixture=${fixtureId}`);
-            }
+            router.push(`/match/${code}?fixtureId=${fixtureId || ''}`);
         } catch (err) {
-            console.error('Match init failed:', err);
+            console.error('Failed to start match:', err);
         }
     };
 
-    if (loading || !fixture || !myTeam) {
+    if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--color-bg-primary)' }}>
                 <div className="shimmer w-16 h-16 rounded-2xl" />
@@ -194,118 +247,226 @@ export default function PreMatchSelectionPage() {
         );
     }
 
-    const isHost = userId === hostId;
-    const canStart = isLocked && otherTeamLocked && isHost;
-
     return (
         <div className="min-h-screen" style={{ background: 'var(--color-bg-primary)' }}>
             <Navbar />
-            <main className="max-w-7xl mx-auto px-6 pt-24 pb-12">
-                <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+            <main className="max-w-4xl mx-auto px-6 pt-24 pb-12">
+                <div className="flex items-center justify-between mb-6">
                     <div>
-                        <h1 className="text-3xl font-bold gold-text mb-1">Playing 11 Selection</h1>
-                        <p className="text-sm opacity-60">
-                            Match {fixture.scheduledOrder}: {fixture.homeTeamName} vs {fixture.awayTeamName}
+                        <h1 className="text-2xl font-bold">Playing 11 Selection</h1>
+                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                            Select your playing XI, set batting order, and assign roles
                         </p>
                     </div>
-
-                    <div className="flex items-center gap-4">
-                        <div className="text-right">
-                            <p className="text-xs font-semibold uppercase tracking-widest opacity-40 mb-1">Selection Status</p>
-                            <div className="flex gap-2">
-                                <span className={`px-2 py-1 rounded text-[10px] font-bold ${isLocked ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/30'}`}>
-                                    {isLocked ? '✓ READY' : '⏳ SELECTING'}
-                                </span>
-                                <span className={`px-2 py-1 rounded text-[10px] font-bold ${otherTeamLocked ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/30'}`}>
-                                    {otherTeamLocked ? '✓ OPPONENT READY' : '⏳ OPPONENT SELECTING'}
-                                </span>
-                            </div>
-                        </div>
-
-                        {isHost ? (
-                            <button
-                                onClick={handleStartMatch}
-                                disabled={!isLocked || !otherTeamLocked}
-                                className={`btn-primary px-8 py-3 ${(!isLocked || !otherTeamLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                                Start Match →
-                            </button>
-                        ) : (
-                            <button
-                                onClick={handleLock}
-                                disabled={selectedIds.size !== 11 || isLocked}
-                                className="btn-primary px-8 py-3"
-                            >
-                                {isLocked ? 'Selection Locked' : `Lock Selection (${selectedIds.size}/11)`}
-                            </button>
-                        )}
+                    <div className="flex items-center gap-3">
+                        <span className={`text-xs px-3 py-1.5 rounded-full font-semibold ${selectedIds.length === 11 ? 'bg-green-900/30 text-green-400' : 'bg-yellow-900/30 text-yellow-400'}`}>
+                            {selectedIds.length}/11 Selected
+                        </span>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                    {/* Squad List */}
-                    <div className="lg:col-span-3 space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                            {myTeam.squad.map((s) => (
-                                <div
-                                    key={s.player.id}
-                                    onClick={() => handleTogglePlayer(s.player.id)}
-                                    className={`panel cursor-pointer transition-all duration-300 ${selectedIds.has(s.player.id)
-                                        ? 'border-[var(--color-gold)] bg-white/5 scale-[1.02]'
-                                        : 'border-white/5 hover:border-white/20'
-                                        }`}
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <PlayerAvatar name={s.player.name} role={s.player.role as any} size="md" />
-                                        <div className="flex-1">
-                                            <div className="flex items-center justify-between mb-1">
-                                                <h3 className="font-bold text-sm">{s.player.name}</h3>
-                                                {selectedIds.has(s.player.id) && <span className="text-xs gold-text">✓</span>}
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 opacity-60">
-                                                    {s.player.role}
-                                                </span>
-                                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 opacity-60 font-mono">
-                                                    Bat: {s.player.battingSkill} | Bowl: {s.player.bowlingSkill}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                {error && (
+                    <div className="mb-4 p-3 rounded-lg text-sm font-semibold" style={{
+                        background: 'rgba(239,68,68,0.1)',
+                        color: 'var(--color-danger)',
+                        border: '1px solid rgba(239,68,68,0.3)',
+                    }}>
+                        ⚠️ {error}
                     </div>
+                )}
 
-                    {/* Summary Sidebar */}
-                    <div className="space-y-4">
-                        <div className="panel sticky top-24">
-                            <h2 className="text-sm font-bold uppercase tracking-wider mb-4 opacity-60">Your Playing 11</h2>
-                            <div className="space-y-2 mb-6">
-                                {Array.from(selectedIds).map(id => {
-                                    const p = myTeam.squad.find(s => s.player.id === id);
+                <div className="grid lg:grid-cols-5 gap-6">
+                    {/* Squad Selection */}
+                    <div className="lg:col-span-3">
+                        <div className="panel">
+                            <h3 className="text-sm font-semibold tracking-wider uppercase mb-4" style={{ color: 'var(--color-text-muted)' }}>
+                                {myTeam?.teamName || 'Your Squad'} — Full Squad
+                            </h3>
+                            <div className="space-y-2">
+                                {myTeam?.squad.map(({ player, soldPrice }) => {
+                                    const isSelected = selectedIds.includes(player.id);
                                     return (
-                                        <div key={id} className="flex items-center justify-between text-xs py-1.5 border-b border-white/5">
-                                            <span>{p?.player.name}</span>
-                                            <span className="opacity-40">{p?.player.role[0]}</span>
+                                        <div
+                                            key={player.id}
+                                            onClick={() => handleTogglePlayer(player.id)}
+                                            className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${locked ? 'pointer-events-none opacity-60' : ''}`}
+                                            style={{
+                                                background: isSelected ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.02)',
+                                                border: `1px solid ${isSelected ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.05)'}`,
+                                            }}
+                                        >
+                                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-green-500 border-green-500' : 'border-white/20'}`}>
+                                                {isSelected && <span className="text-[10px]">✓</span>}
+                                            </div>
+                                            <PlayerAvatar name={player.name} size={36} />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-semibold text-sm truncate">{player.name}</p>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                                                        background: `${roleColors[player.role]}15`,
+                                                        color: roleColors[player.role],
+                                                    }}>
+                                                        {roleEmoji[player.role]} {player.role.replace('_', ' ')}
+                                                    </span>
+                                                    {player.nationality === 'Overseas' && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400">🌍 OS</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="text-right flex-shrink-0">
+                                                <p className="text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>
+                                                    BAT {player.battingSkill} | BWL {player.bowlingSkill}
+                                                </p>
+                                                <p className="text-[10px] gold-text">₹{soldPrice} Cr</p>
+                                            </div>
                                         </div>
                                     );
                                 })}
-                                {[...Array(11 - selectedIds.size)].map((_, i) => (
-                                    <div key={i} className="h-8 border-b border-dashed border-white/5 flex items-center justify-center text-[10px] opacity-20">
-                                        Slot {selectedIds.size + i + 1}
-                                    </div>
-                                ))}
                             </div>
+                        </div>
+                    </div>
 
-                            {!isHost && (
+                    {/* Batting Order + Roles */}
+                    <div className="lg:col-span-2 space-y-4">
+                        {/* Role Assignment */}
+                        {selectedIds.length === 11 && !locked && (
+                            <div className="panel">
+                                <h3 className="text-sm font-semibold tracking-wider uppercase mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                                    Assign Roles
+                                </h3>
+                                <div className="space-y-3">
+                                    {/* Captain */}
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1 block" style={{ color: '#FFD700' }}>🏏 Captain</label>
+                                        <select
+                                            value={captainId}
+                                            onChange={e => setCaptainId(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm"
+                                        >
+                                            <option value="">Select Captain...</option>
+                                            {selectedIds.map(id => {
+                                                const p = myTeam?.squad.find(s => s.player.id === id);
+                                                return p ? <option key={id} value={id}>{p.player.name}</option> : null;
+                                            })}
+                                        </select>
+                                    </div>
+                                    {/* Wicket Keeper */}
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1 block" style={{ color: '#FFA726' }}>🧤 Wicket Keeper</label>
+                                        <select
+                                            value={wkId}
+                                            onChange={e => setWkId(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm"
+                                        >
+                                            <option value="">Select WK...</option>
+                                            {selectedIds.map(id => {
+                                                const p = myTeam?.squad.find(s => s.player.id === id);
+                                                return p ? <option key={id} value={id}>{p.player.name}</option> : null;
+                                            })}
+                                        </select>
+                                    </div>
+                                    {/* Opening Bowler */}
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1 block" style={{ color: '#EF5350' }}>🎯 Opening Bowler</label>
+                                        <select
+                                            value={openingBowlerId}
+                                            onChange={e => setOpeningBowlerId(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm"
+                                        >
+                                            <option value="">Select Opening Bowler...</option>
+                                            {selectedIds
+                                                .filter(id => {
+                                                    const p = myTeam?.squad.find(s => s.player.id === id);
+                                                    return p && (p.player.role === 'BOWLER' || p.player.role === 'ALL_ROUNDER');
+                                                })
+                                                .map(id => {
+                                                    const p = myTeam?.squad.find(s => s.player.id === id);
+                                                    return p ? <option key={id} value={id}>{p.player.name}</option> : null;
+                                                })}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Batting Order */}
+                        {selectedIds.length > 0 && (
+                            <div className="panel">
+                                <h3 className="text-sm font-semibold tracking-wider uppercase mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                                    Batting Order
+                                </h3>
+                                <div className="space-y-1">
+                                    {battingOrder.map((id, idx) => {
+                                        const p = myTeam?.squad.find(s => s.player.id === id);
+                                        if (!p) return null;
+                                        return (
+                                            <div key={id} className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{
+                                                background: 'rgba(255,255,255,0.03)',
+                                                border: '1px solid rgba(255,255,255,0.05)',
+                                            }}>
+                                                <span className="text-xs font-bold w-6 text-center" style={{ color: 'var(--color-gold)' }}>
+                                                    #{idx + 1}
+                                                </span>
+                                                <span className="flex-1 text-sm font-medium truncate">
+                                                    {p.player.name}
+                                                    {p.player.id === captainId && <span className="ml-1 text-[10px] text-yellow-400">(C)</span>}
+                                                    {p.player.id === wkId && <span className="ml-1 text-[10px] text-orange-400">(WK)</span>}
+                                                </span>
+                                                <span className="text-[10px]" style={{ color: roleColors[p.player.role] }}>
+                                                    {roleEmoji[p.player.role]}
+                                                </span>
+                                                {!locked && (
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <button onClick={(e) => { e.stopPropagation(); handleMoveUp(id); }}
+                                                            className="text-[10px] w-5 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center">
+                                                            ▲
+                                                        </button>
+                                                        <button onClick={(e) => { e.stopPropagation(); handleMoveDown(id); }}
+                                                            className="text-[10px] w-5 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center">
+                                                            ▼
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Lock / Start buttons */}
+                        <div className="space-y-3">
+                            {!locked ? (
                                 <button
                                     onClick={handleLock}
-                                    disabled={selectedIds.size !== 11 || isLocked}
-                                    className="btn-primary w-full py-3"
+                                    disabled={selectedIds.length !== 11}
+                                    className="btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
-                                    {isLocked ? 'Selection Locked' : `Lock Selection (${selectedIds.size}/11)`}
+                                    🔒 Lock Playing 11
                                 </button>
+                            ) : (
+                                <>
+                                    <div className="text-center text-sm p-3 rounded-xl" style={{
+                                        background: 'rgba(34,197,94,0.1)',
+                                        border: '1px solid rgba(34,197,94,0.3)',
+                                        color: 'var(--color-success)',
+                                    }}>
+                                        ✅ Your Playing 11 is locked!
+                                    </div>
+                                    {opponentTeam && !opponentLocked && (
+                                        <div className="text-center text-xs p-2 rounded-lg" style={{
+                                            background: 'rgba(255,193,7,0.1)',
+                                            color: 'var(--color-gold)',
+                                        }}>
+                                            ⏳ Waiting for {opponentTeam.teamName} to lock their selection...
+                                        </div>
+                                    )}
+                                    {(!opponentTeam || opponentLocked) && (
+                                        <button onClick={handleStartMatch} className="btn-primary w-full" style={{ animation: 'pulse 2s infinite' }}>
+                                            🏏 Start Match →
+                                        </button>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>

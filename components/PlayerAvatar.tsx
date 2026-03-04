@@ -4,9 +4,17 @@ import { useState } from 'react';
 
 interface PlayerAvatarProps {
     name: string;
-    role: 'BATSMAN' | 'BOWLER' | 'ALL_ROUNDER' | 'WICKET_KEEPER';
+    role?: 'BATSMAN' | 'BOWLER' | 'ALL_ROUNDER' | 'WICKET_KEEPER';
     imageUrl?: string;
-    size?: 'sm' | 'md' | 'lg' | 'xl';
+    size?: 'sm' | 'md' | 'lg' | 'xl' | number;
+}
+
+function resolveSize(size: 'sm' | 'md' | 'lg' | 'xl' | number): 'sm' | 'md' | 'lg' | 'xl' {
+    if (typeof size === 'string') return size;
+    if (size <= 28) return 'sm';
+    if (size <= 36) return 'md';
+    if (size <= 56) return 'lg';
+    return 'xl';
 }
 
 const roleColors: Record<string, { bg: string; border: string }> = {
@@ -30,9 +38,10 @@ const sizes = {
     xl: { container: 'w-20 h-20', text: 'text-2xl', badge: 'w-6 h-6 text-[12px]' },
 };
 
-export default function PlayerAvatar({ name, role, imageUrl, size = 'lg' }: PlayerAvatarProps) {
+export default function PlayerAvatar({ name, role = 'BATSMAN', imageUrl, size = 'lg' }: PlayerAvatarProps) {
     const [imgError, setImgError] = useState(false);
-    const s = sizes[size];
+    const resolvedSize = resolveSize(size);
+    const s = sizes[resolvedSize];
     const colors = roleColors[role] || roleColors.BATSMAN;
     const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
@@ -70,3 +79,4 @@ export default function PlayerAvatar({ name, role, imageUrl, size = 'lg' }: Play
         </div>
     );
 }
+

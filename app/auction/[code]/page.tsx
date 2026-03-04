@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useUserStore } from '@/lib/store';
 import Navbar from '@/components/Navbar';
 import AuctionPanel from '@/components/AuctionPanel';
+import PlayerAvatar from '@/components/PlayerAvatar';
 import { IPL_TEAMS } from '@/data/teams';
 
 interface AuctionSetInfo {
@@ -45,6 +46,7 @@ export default function AuctionPage() {
     const [loading, setLoading] = useState(true);
     const [hostId, setHostId] = useState<string | null>(null);
     const [isSquadsModalOpen, setIsSquadsModalOpen] = useState(false);
+    const [isPlayerSetsModalOpen, setIsPlayerSetsModalOpen] = useState(false);
     const [showSoldPopup, setShowSoldPopup] = useState(false);
     const [lastSale, setLastSale] = useState<{ player: any; bid: number; team: string; status: string } | null>(null);
 
@@ -290,6 +292,12 @@ export default function AuctionPage() {
                             Select Playing 11 →
                         </button>
                     )}
+                    <button
+                        onClick={() => setIsPlayerSetsModalOpen(true)}
+                        className="btn-secondary text-xs"
+                    >
+                        📋 View Player Sets
+                    </button>
                 </div>
 
                 {/* ── Auction Set Tracker ── */}
@@ -545,6 +553,102 @@ export default function AuctionPage() {
                                                         </div>
                                                     ))
                                                 )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* View Player Sets Modal */}
+            {isPlayerSetsModalOpen && auction?.auctionSets && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{
+                    background: 'rgba(0,0,0,0.8)',
+                    backdropFilter: 'blur(8px)',
+                }}>
+                    <div className="w-full max-w-5xl max-h-[85vh] flex flex-col rounded-2xl overflow-hidden" style={{
+                        background: 'var(--color-bg-primary)',
+                        border: '1px solid var(--color-border)',
+                    }}>
+                        <div className="p-4 border-b flex justify-between items-center" style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-elevated)' }}>
+                            <h2 className="text-xl font-bold">📋 Auction Player Sets</h2>
+                            <button onClick={() => setIsPlayerSetsModalOpen(false)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center">
+                                ✕
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+                            <div className="space-y-6">
+                                {auction.auctionSets.map((set, setIdx) => {
+                                    const isDone = setIdx < auction.currentSetIndex;
+                                    const isCurrent = setIdx === auction.currentSetIndex;
+                                    // Build a lookup of sold player IDs
+                                    const soldIds = new Set(auction.soldPlayers.map((s: any) => s.player.id));
+                                    const unsoldIds = new Set(auction.unsoldPlayers?.map((p: any) => p.id) || []);
+
+                                    return (
+                                        <div key={set.id} className="rounded-xl border overflow-hidden" style={{
+                                            borderColor: isCurrent ? `${set.color}60` : 'var(--color-border)',
+                                            background: isCurrent ? `${set.color}05` : 'var(--color-bg-elevated)',
+                                        }}>
+                                            <div className="p-4 flex items-center gap-3" style={{
+                                                background: isCurrent ? `${set.color}10` : 'rgba(255,255,255,0.02)',
+                                                borderBottom: '1px solid var(--color-border)',
+                                            }}>
+                                                <span className="text-2xl">{set.emoji}</span>
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <h3 className="font-bold" style={{ color: set.color }}>{set.name}</h3>
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{
+                                                            background: isDone ? 'rgba(34,197,94,0.15)' : isCurrent ? `${set.color}20` : 'rgba(255,255,255,0.05)',
+                                                            color: isDone ? 'var(--color-success)' : isCurrent ? set.color : 'var(--color-text-muted)',
+                                                        }}>
+                                                            {isDone ? '✓ Completed' : isCurrent ? '● Active' : 'Upcoming'}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                                                        {set.description} • {set.players.length} players
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="p-4">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                    {set.players.map((player: any) => {
+                                                        const isSold = soldIds.has(player.id);
+                                                        const isUnsold = unsoldIds.has(player.id);
+                                                        const soldInfo = isSold ? auction.soldPlayers.find((s: any) => s.player.id === player.id) : null;
+                                                        const iplTeam = soldInfo ? IPL_TEAMS.find(t => t.name === soldInfo.soldTo.teamName) : null;
+
+                                                        return (
+                                                            <div key={player.id} className="flex items-center gap-2 py-2 px-3 rounded-lg text-sm" style={{
+                                                                background: isSold ? 'rgba(34,197,94,0.08)' : isUnsold ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.03)',
+                                                                border: `1px solid ${isSold ? 'rgba(34,197,94,0.2)' : isUnsold ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)'}`,
+                                                                opacity: (isSold || isUnsold) ? 0.7 : 1,
+                                                            }}>
+                                                                <PlayerAvatar name={player.name} size={28} />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="font-medium truncate">{player.name}</p>
+                                                                    <p className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                                                                        {player.role} • ₹{player.basePrice} Cr
+                                                                    </p>
+                                                                </div>
+                                                                {isSold && (
+                                                                    <div className="text-right flex-shrink-0">
+                                                                        <span className="text-[10px] font-bold" style={{ color: iplTeam?.color || 'var(--color-success)' }}>
+                                                                            {iplTeam?.shortName || soldInfo?.soldTo.teamName}
+                                                                        </span>
+                                                                        <p className="text-[10px] gold-text">₹{soldInfo?.soldPrice}</p>
+                                                                    </div>
+                                                                )}
+                                                                {isUnsold && (
+                                                                    <span className="text-[10px] font-bold" style={{ color: 'var(--color-danger)' }}>UNSOLD</span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                         </div>
                                     );

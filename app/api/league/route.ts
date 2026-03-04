@@ -112,6 +112,43 @@ export async function POST(request: NextRequest) {
             state.currentMatchIndex = fixtureIndex;
             await saveLeagueState(state);
 
+            // Auto-select playing 11 for bot teams
+            try {
+                const { getAuctionState } = await import('@/lib/auctionEngine');
+                const { isBotUser, botSelectPlaying11 } = await import('@/lib/botEngine');
+                const { getRoomState } = await import('@/lib/roomManager');
+                const redisObj = (await import('@/lib/redis')).default;
+
+                const auction = await getAuctionState(roomCode);
+                const room = await getRoomState(roomCode);
+
+                if (auction && room) {
+                    const teamsToCheck = [fixture.homeTeamUserId, fixture.awayTeamUserId];
+
+                    for (const uId of teamsToCheck) {
+                        const roomPlayer = room.players.find(p => p.userId === uId);
+                        if (roomPlayer && isBotUser(roomPlayer.username)) {
+                            const teamData = auction.teams.find(t => t.userId === uId);
+                            if (teamData) {
+                                const squad = teamData.squad.map(s => ({
+                                    id: s.player.id,
+                                    name: s.player.name,
+                                    role: s.player.role,
+                                    battingSkill: s.player.battingSkill,
+                                    bowlingSkill: s.player.bowlingSkill,
+                                    nationality: s.player.nationality,
+                                }));
+                                const selection = botSelectPlaying11(squad);
+                                const key = `selection:${roomCode}:${fixture.id}:${uId}`;
+                                await redisObj.set(key, JSON.stringify(selection), 'EX', 86400);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Failed auto-selecting bots:", err);
+            }
+
             return NextResponse.json({
                 state,
                 fixture,

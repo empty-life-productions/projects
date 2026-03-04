@@ -6,7 +6,7 @@ export interface MatchState {
     homeTeam: MatchTeam;
     awayTeam: MatchTeam;
     innings: number;
-    status: 'scheduled' | 'live' | 'innings_break' | 'completed';
+    status: 'scheduled' | 'toss' | 'toss_decision' | 'live' | 'innings_break' | 'awaiting_batter' | 'awaiting_bowler' | 'completed';
     currentBatting: 'home' | 'away';
     pitchType: 'BATTING' | 'BOWLING' | 'BALANCED' | 'SPINNING';
     target: number | null;
@@ -24,6 +24,24 @@ export interface MatchState {
     runsRequired?: number;
     ballsRemaining?: number;
     requiredRunRate?: number;
+    // Toss fields
+    toss?: TossResult;
+    // Captain / WK / roles
+    homeCaptainId?: string;
+    awayCaptainId?: string;
+    homeWkId?: string;
+    awayWkId?: string;
+    // History
+    firstInningsBattingOrder?: BatterState[];
+    firstInningsBowlingOrder?: BowlerState[];
+}
+
+export interface TossResult {
+    winnerId: string;
+    winnerName: string;
+    loserId: string;
+    loserName: string;
+    decision: 'bat' | 'bowl' | null; // null = not yet decided
 }
 
 export interface MatchTeam {
@@ -45,6 +63,8 @@ export interface MatchPlayer {
     role: string;
     battingSkill: number;
     bowlingSkill: number;
+    isCaptain?: boolean;
+    isWicketKeeper?: boolean;
 }
 
 export interface BatterState {
@@ -112,8 +132,12 @@ function simulateBall(
 ): BallResult {
     const { batMod, bowlMod } = getPitchModifier(pitchType, phase);
 
-    const batSkill = batter.player.battingSkill * batMod;
-    const bowlSkill = bowler.player.bowlingSkill * bowlMod;
+    let batSkill = batter.player.battingSkill * batMod;
+    let bowlSkill = bowler.player.bowlingSkill * bowlMod;
+
+    // Captain boost
+    if (batter.player.isCaptain) batSkill += 3;
+    if (bowler.player.isCaptain) bowlSkill += 2;
 
     // Form factor (random variance)
     const form = 0.85 + Math.random() * 0.3;
@@ -256,22 +280,98 @@ function getRunProbabilities(
     return probs.map(([r, p]) => [r, p / total] as [number, number]);
 }
 
+// ======================================================
+// Toss
+// ======================================================
+
+export function performToss(homeTeam: MatchTeam, awayTeam: MatchTeam): TossResult {
+    const coinFlip = Math.random() < 0.5;
+    const winner = coinFlip ? homeTeam : awayTeam;
+    const loser = coinFlip ? awayTeam : homeTeam;
+
+    return {
+        winnerId: winner.userId,
+        winnerName: winner.name,
+        loserId: loser.userId,
+        loserName: loser.name,
+        decision: null, // to be filled by the toss winner
+    };
+}
+
+// ======================================================
+// Match Initialization
+// ======================================================
+
 export function initMatchState(
     matchId: string,
     roomCode: string,
     homeTeam: MatchTeam,
     awayTeam: MatchTeam,
-    pitchType: MatchState['pitchType'] = 'BALANCED'
+    pitchType: MatchState['pitchType'] = 'BALANCED',
+    options?: {
+        tossResult?: TossResult;
+        homeBattingOrder?: string[];
+        awayBattingOrder?: string[];
+        homeCaptainId?: string;
+        awayCaptainId?: string;
+        homeWkId?: string;
+        awayWkId?: string;
+        homeOpeningBowlerId?: string;
+        awayOpeningBowlerId?: string;
+    }
 ): MatchState {
-    const battingOrder = homeTeam.players.map(p => ({
+    // Apply captain and WK flags
+    if (options?.homeCaptainId) {
+        homeTeam.players.forEach(p => { p.isCaptain = p.id === options.homeCaptainId; });
+    }
+    if (options?.awayCaptainId) {
+        awayTeam.players.forEach(p => { p.isCaptain = p.id === options.awayCaptainId; });
+    }
+    if (options?.homeWkId) {
+        homeTeam.players.forEach(p => { p.isWicketKeeper = p.id === options.homeWkId; });
+    }
+    if (options?.awayWkId) {
+        awayTeam.players.forEach(p => { p.isWicketKeeper = p.id === options.awayWkId; });
+    }
+
+    // Determine who bats first based on toss
+    let battingFirst: 'home' | 'away' = 'home';
+    if (options?.tossResult?.decision) {
+        const tossWinnerIsHome = options.tossResult.winnerId === homeTeam.userId;
+        if (options.tossResult.decision === 'bat') {
+            battingFirst = tossWinnerIsHome ? 'home' : 'away';
+        } else {
+            battingFirst = tossWinnerIsHome ? 'away' : 'home';
+        }
+    }
+
+    const firstBattingTeam = battingFirst === 'home' ? homeTeam : awayTeam;
+    const firstBowlingTeam = battingFirst === 'home' ? awayTeam : homeTeam;
+
+    // Apply batting order if provided
+    const battingOrderIds = battingFirst === 'home' ? options?.homeBattingOrder : options?.awayBattingOrder;
+    let orderedBattingPlayers = firstBattingTeam.players;
+    if (battingOrderIds && battingOrderIds.length > 0) {
+        orderedBattingPlayers = battingOrderIds
+            .map(id => firstBattingTeam.players.find(p => p.id === id))
+            .filter(Boolean) as MatchPlayer[];
+        // Add any players not in the order at the end
+        const remaining = firstBattingTeam.players.filter(p => !battingOrderIds.includes(p.id));
+        orderedBattingPlayers = [...orderedBattingPlayers, ...remaining];
+    }
+
+    const battingOrder = orderedBattingPlayers.map(p => ({
         player: p,
         runs: 0, balls: 0, fours: 0, sixes: 0,
         isOut: false, dismissal: '', strikeRate: 0,
     }));
 
-    const bowlingOrder = awayTeam.players
+    // Determine opening bowler
+    const openingBowlerId = battingFirst === 'home' ? options?.awayOpeningBowlerId : options?.homeOpeningBowlerId;
+
+    const bowlingOrder = firstBowlingTeam.players
         .filter(p => p.role !== 'BATSMAN' && p.role !== 'WICKET_KEEPER')
-        .concat(awayTeam.players.filter(p => p.role === 'BATSMAN' || p.role === 'WICKET_KEEPER'))
+        .concat(firstBowlingTeam.players.filter(p => p.role === 'BATSMAN' || p.role === 'WICKET_KEEPER'))
         .slice(0, 6)
         .map(p => ({
             player: p,
@@ -279,13 +379,20 @@ export function initMatchState(
             wickets: 0, economy: 0, overBalls: 0,
         }));
 
+    // Set opening bowler if specified
+    let currentBowler = bowlingOrder[0] || null;
+    if (openingBowlerId) {
+        const specifiedBowler = bowlingOrder.find(b => b.player.id === openingBowlerId);
+        if (specifiedBowler) currentBowler = specifiedBowler;
+    }
+
     return {
         matchId, roomCode,
         homeTeam: { ...homeTeam, score: 0, wickets: 0, overs: 0, balls: 0, extras: 0, runRate: 0 },
         awayTeam: { ...awayTeam, score: 0, wickets: 0, overs: 0, balls: 0, extras: 0, runRate: 0 },
         innings: 1,
         status: 'live',
-        currentBatting: 'home',
+        currentBatting: battingFirst,
         pitchType,
         target: null,
         currentOver: 0, currentBall: 0,
@@ -293,7 +400,7 @@ export function initMatchState(
         bowlingOrder,
         striker: battingOrder[0] || null,
         nonStriker: battingOrder[1] || null,
-        currentBowler: bowlingOrder[0] || null,
+        currentBowler,
         commentary: ['Match started! First innings underway.'],
         result: null,
         matchPhase: 'powerplay',
@@ -301,12 +408,27 @@ export function initMatchState(
         runsRequired: 0,
         ballsRemaining: TOTAL_OVERS * 6,
         requiredRunRate: 0,
+        toss: options?.tossResult || undefined,
+        homeCaptainId: options?.homeCaptainId,
+        awayCaptainId: options?.awayCaptainId,
+        homeWkId: options?.homeWkId,
+        awayWkId: options?.awayWkId,
+        firstInningsBattingOrder: [],
+        firstInningsBowlingOrder: [],
     };
 }
+
+// ======================================================
+// Process Next Ball
+// ======================================================
 
 export function processNextBall(state: MatchState): { state: MatchState; ballResult: BallResult } {
     if (state.status === 'completed') {
         return { state, ballResult: { runs: 0, isWicket: false, isBoundary: false, isSix: false, isExtra: false, extraType: null, extraRuns: 0, dismissalType: null, commentary: 'Match already completed.' } };
+    }
+
+    if (state.status === 'awaiting_batter' || state.status === 'awaiting_bowler') {
+        return { state, ballResult: { runs: 0, isWicket: false, isBoundary: false, isSix: false, isExtra: false, extraType: null, extraRuns: 0, dismissalType: null, commentary: `Waiting for ${state.status === 'awaiting_batter' ? 'new batter' : 'bowler'} selection.` } };
     }
 
     const battingTeam = state.currentBatting === 'home' ? state.homeTeam : state.awayTeam;
@@ -344,9 +466,15 @@ export function processNextBall(state: MatchState): { state: MatchState; ballRes
             battingTeam.wickets++;
             state.currentBowler.wickets++;
 
-            // Next batter
-            const nextBatter = state.battingOrder.find(b => !b.isOut && b !== state.striker && b !== state.nonStriker);
-            state.striker = nextBatter || null;
+            // Check if innings is over due to all out
+            if (battingTeam.wickets >= MAX_WICKETS) {
+                // Don't need next batter, innings is over
+                state.striker = null;
+            } else {
+                // Set status to awaiting_batter — user must choose the next batter
+                state.status = 'awaiting_batter';
+                state.striker = null;
+            }
         } else {
             battingTeam.score += ballResult.runs;
             state.striker.runs += ballResult.runs;
@@ -377,14 +505,19 @@ export function processNextBall(state: MatchState): { state: MatchState; ballRes
             state.currentOver++;
 
             // Rotate strike at end of over
-            const temp = state.striker;
-            state.striker = state.nonStriker;
-            state.nonStriker = temp;
+            if (state.striker && state.nonStriker) {
+                const temp = state.striker;
+                state.striker = state.nonStriker;
+                state.nonStriker = temp;
+            }
 
-            // Next bowler
-            const availableBowlers = state.bowlingOrder.filter(b => b.overs < 4 && b !== state.currentBowler);
-            if (availableBowlers.length > 0) {
-                state.currentBowler = availableBowlers[Math.floor(Math.random() * availableBowlers.length)];
+            // Set status to awaiting_bowler — user must choose the next bowler
+            // But only if the innings isn't about to end
+            if (battingTeam.overs < TOTAL_OVERS && battingTeam.wickets < MAX_WICKETS) {
+                if (state.status !== 'awaiting_batter') {
+                    state.status = 'awaiting_bowler';
+                    state.currentBowler = null;
+                }
             }
         }
     }
@@ -393,6 +526,13 @@ export function processNextBall(state: MatchState): { state: MatchState; ballRes
     state.striker && (state.striker.strikeRate = state.striker.balls > 0 ? Math.round((state.striker.runs / state.striker.balls) * 100 * 100) / 100 : 0);
     const totalBalls = battingTeam.overs * 6 + battingTeam.balls;
     battingTeam.runRate = totalBalls > 0 ? Math.round((battingTeam.score / totalBalls) * 6 * 100) / 100 : 0;
+
+    // Update chase info for 2nd innings
+    if (state.innings === 2 && state.target !== null) {
+        state.runsRequired = state.target - battingTeam.score;
+        state.ballsRemaining = (TOTAL_OVERS * 6) - totalBalls;
+        state.requiredRunRate = state.ballsRemaining > 0 ? Math.round((state.runsRequired / state.ballsRemaining) * 6 * 100) / 100 : 0;
+    }
 
     // Add commentary
     state.commentary.unshift(ballResult.commentary);
@@ -435,7 +575,49 @@ export function processNextBall(state: MatchState): { state: MatchState; ballRes
     return { state, ballResult };
 }
 
+// ======================================================
+// Select Next Batter / Bowler (Interactive)
+// ======================================================
+
+export function selectNextBatter(state: MatchState, batterId: string): MatchState {
+    if (state.status !== 'awaiting_batter') return state;
+
+    const batter = state.battingOrder.find(b => b.player.id === batterId && !b.isOut && b !== state.nonStriker);
+    if (!batter) return state;
+
+    state.striker = batter;
+    state.status = 'live';
+
+    // If bowler was also pending (wicket fell on last ball of over), mark accordingly
+    if (!state.currentBowler) {
+        state.status = 'awaiting_bowler';
+    }
+
+    state.commentary.unshift(`${batter.player.name} walks to the crease.`);
+    return state;
+}
+
+export function selectNextBowler(state: MatchState, bowlerId: string): MatchState {
+    if (state.status !== 'awaiting_bowler') return state;
+
+    const bowler = state.bowlingOrder.find(b => b.player.id === bowlerId && b.overs < 4);
+    if (!bowler) return state;
+
+    state.currentBowler = bowler;
+    state.status = 'live';
+    state.commentary.unshift(`${bowler.player.name} to bowl.`);
+    return state;
+}
+
+// ======================================================
+// Setup Second Innings
+// ======================================================
+
 function setupSecondInnings(state: MatchState): void {
+    // Save first innings stats
+    state.firstInningsBattingOrder = [...state.battingOrder];
+    state.firstInningsBowlingOrder = [...state.bowlingOrder];
+
     state.currentBatting = state.currentBatting === 'home' ? 'away' : 'home';
     const newBattingTeam = state.currentBatting === 'home' ? state.homeTeam : state.awayTeam;
     const newBowlingTeam = state.currentBatting === 'home' ? state.awayTeam : state.homeTeam;
@@ -458,11 +640,15 @@ function setupSecondInnings(state: MatchState): void {
 
     state.striker = state.battingOrder[0] || null;
     state.nonStriker = state.battingOrder[1] || null;
-    state.currentBowler = state.bowlingOrder[0] || null;
+    state.currentBowler = null; // User will select opening bowler for 2nd innings
     state.currentOver = 0;
     state.currentBall = 0;
     state.freeHit = false;
 }
+
+// ======================================================
+// Persistence
+// ======================================================
 
 export async function saveMatchState(state: MatchState): Promise<void> {
     await redis.set(`match:${state.matchId}`, JSON.stringify(state), 'EX', 86400);

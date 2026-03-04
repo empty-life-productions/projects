@@ -1,10 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { initLeagueState, saveLeagueState, LeagueTeam } from '@/lib/leagueEngine';
 import { getRoomState, updateRoomStatus } from '@/lib/roomManager';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
-        const roomCode = '8DELJ2';
+        const { searchParams } = new URL(request.url);
+        const roomCode = searchParams.get('roomCode');
+        if (!roomCode) return NextResponse.json({ success: false, error: "roomCode required" });
         const room = await getRoomState(roomCode);
 
         if (!room) {
@@ -22,6 +24,21 @@ export async function GET() {
         // Let's directly construct the expected state and save it
         const state = initLeagueState(roomCode, dummyTeams);
         await saveLeagueState(state);
+
+        // Mock auction state so pre-match can find squads
+        const auctionState = {
+            status: 'completed',
+            teams: dummyTeams.map(t => ({
+                userId: t.userId,
+                username: t.username,
+                teamName: t.teamName,
+                purse: 50,
+                squad: t.squad
+            }))
+        };
+        const redis = require('@/lib/redis').default;
+        await redis.set(`auction:${roomCode}`, JSON.stringify(auctionState), 'EX', 86400);
+
         await updateRoomStatus(roomCode, 'league');
 
         return NextResponse.json({ success: true, roomCode });

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import redis from '@/lib/redis';
+import { getRoomState } from '@/lib/roomManager';
+import { isBotUser, botSelectPlaying11 } from '@/lib/botEngine';
+import { getAuctionState } from '@/lib/auctionEngine';
 
 // Helper to get session user
 function getSession(request: NextRequest) {
@@ -10,6 +13,15 @@ function getSession(request: NextRequest) {
     } catch {
         return null;
     }
+}
+
+// Selection data shape
+interface SelectionData {
+    selectedIds: string[];
+    battingOrder: string[];
+    captainId: string;
+    wkId: string;
+    openingBowlerId: string;
 }
 
 // GET: Returns the selection status for a specific room/team
@@ -31,18 +43,29 @@ export async function GET(request: NextRequest) {
         if (teamId) {
             // Get single team's selection
             const data = await redis.get(`${keyPrefix}:${teamId}`);
-            return NextResponse.json({ selectedIds: data ? JSON.parse(data) : [] });
+            if (data) {
+                const parsed = JSON.parse(data);
+                // Support both old format (array) and new format (object)
+                if (Array.isArray(parsed)) {
+                    return NextResponse.json({ selectedIds: parsed });
+                }
+                return NextResponse.json(parsed);
+            }
+            return NextResponse.json({ selectedIds: [] });
         } else {
             // Get all selections for the room/fixture
             const keys = await redis.keys(`${keyPrefix}:*`);
-            const selections: Record<string, string[]> = {};
+            const selections: Record<string, any> = {};
 
             for (const key of keys) {
                 const parts = key.split(':');
                 const tId = parts[parts.length - 1]; // Last part is always the teamId
                 if (tId) {
                     const data = await redis.get(key);
-                    if (data) selections[tId] = JSON.parse(data);
+                    if (data) {
+                        const parsed = JSON.parse(data);
+                        selections[tId] = Array.isArray(parsed) ? { selectedIds: parsed } : parsed;
+                    }
                 }
             }
             return NextResponse.json({ selections });
@@ -53,13 +76,56 @@ export async function GET(request: NextRequest) {
     }
 }
 
-// POST: Save a team's playing 11 selection
+// POST: Save a team's playing 11 selection with enriched data
 export async function POST(request: NextRequest) {
     const session = getSession(request);
     if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     try {
-        const { roomCode, teamId, selectedIds, fixtureId } = await request.json();
+        const body = await request.json();
+        const { roomCode, teamId, selectedIds, fixtureId, battingOrder, captainId, wkId, openingBowlerId } = body;
+
+        // Support auto-select for bots
+        if (body.action === 'autoSelectBots') {
+            const room = await getRoomState(roomCode);
+            const auctionState = await getAuctionState(roomCode);
+            if (!room || !auctionState) return NextResponse.json({ error: 'Room or auction not found' }, { status: 404 });
+
+            const results: Record<string, SelectionData> = {};
+
+            for (const team of auctionState.teams) {
+                const roomPlayer = room.players.find(p => p.userId === team.userId);
+                if (!roomPlayer || !isBotUser(roomPlayer.username)) continue;
+
+                const squad = team.squad.map(s => ({
+                    id: s.player.id,
+                    name: s.player.name,
+                    role: s.player.role,
+                    battingSkill: s.player.battingSkill,
+                    bowlingSkill: s.player.bowlingSkill,
+                    nationality: s.player.nationality,
+                }));
+
+                const selection = botSelectPlaying11(squad);
+
+                const key = fixtureId
+                    ? `selection:${roomCode}:${fixtureId}:${team.userId}`
+                    : `selection:${roomCode}:${team.userId}`;
+
+                const selectionData: SelectionData = {
+                    selectedIds: selection.selectedIds,
+                    battingOrder: selection.battingOrder,
+                    captainId: selection.captainId,
+                    wkId: selection.wkId,
+                    openingBowlerId: selection.openingBowlerId,
+                };
+
+                await redis.set(key, JSON.stringify(selectionData), 'EX', 86400);
+                results[team.userId] = selectionData;
+            }
+
+            return NextResponse.json({ success: true, botSelections: results });
+        }
 
         if (!roomCode || !teamId || !Array.isArray(selectedIds)) {
             return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
@@ -73,7 +139,16 @@ export async function POST(request: NextRequest) {
             ? `selection:${roomCode}:${fixtureId}:${teamId}`
             : `selection:${roomCode}:${teamId}`;
 
-        await redis.set(key, JSON.stringify(selectedIds), 'EX', 86400);
+        // Save enriched selection data
+        const selectionData: SelectionData = {
+            selectedIds,
+            battingOrder: battingOrder || selectedIds,
+            captainId: captainId || selectedIds[0],
+            wkId: wkId || selectedIds[0],
+            openingBowlerId: openingBowlerId || selectedIds[selectedIds.length - 1],
+        };
+
+        await redis.set(key, JSON.stringify(selectionData), 'EX', 86400);
 
         // If this is the initial selection (no fixtureId), check for global start
         if (!fixtureId) {
@@ -97,7 +172,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        return NextResponse.json({ success: true, selectedIds });
+        return NextResponse.json({ success: true, ...selectionData });
     } catch (error) {
         console.error('Failed to save selection:', error);
         return NextResponse.json({ error: 'Internal error' }, { status: 500 });

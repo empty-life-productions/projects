@@ -8,9 +8,13 @@ import {
     skipPlayer,
     skipSet,
     endAuction,
+    saveAuctionState,
 } from '@/lib/auctionEngine';
 import { getRoomState, fillRoomWithBots } from '@/lib/roomManager';
 import { TEAM_NAMES } from '@/data/players';
+import { IPL_PLAYERS } from '@/data/players';
+import { getRetentionState } from '@/lib/retentionEngine';
+import { runBotBidding, isBotUser } from '@/lib/botEngine';
 
 function getSession(request: NextRequest) {
     const sessionCookie = request.cookies.get('session');
@@ -41,18 +45,59 @@ export async function POST(request: NextRequest) {
                 if (updatedRoom) room = updatedRoom;
             }
 
+            // Get retained player IDs to exclude from auction
+            const retentionState = await getRetentionState(roomCode);
+            const excludePlayerIds: string[] = [];
+            if (retentionState) {
+                retentionState.teams.forEach(t => t.retained.forEach(r => excludePlayerIds.push(r.playerId)));
+            }
+
             const players = room.players.map((p, i) => ({
                 userId: p.userId,
                 username: p.username,
                 teamName: p.teamName || TEAM_NAMES[i % TEAM_NAMES.length],
+                // Carry over post-retention purse
+                startingPurse: retentionState?.teams.find(t => t.userId === p.userId)?.purse,
             }));
 
-            const state = await initAuction(roomCode, players);
+            const state = await initAuction(roomCode, players, excludePlayerIds);
+
+            // Merge retained players into each team's squad
+            if (retentionState) {
+                for (const retTeam of retentionState.teams) {
+                    const auctionTeam = state.teams.find(t => t.userId === retTeam.userId);
+                    if (!auctionTeam) continue;
+
+                    for (const retained of retTeam.retained) {
+                        const playerData = IPL_PLAYERS.find(p => p.id === retained.playerId);
+                        if (!playerData) continue;
+
+                        auctionTeam.squad.push({
+                            player: playerData,
+                            soldTo: {
+                                userId: auctionTeam.userId,
+                                username: auctionTeam.username,
+                                teamName: auctionTeam.teamName,
+                            },
+                            soldPrice: retained.cost,
+                        });
+                    }
+                }
+                await saveAuctionState(roomCode, state);
+            }
+
             return NextResponse.json({ state });
         }
 
         if (action === 'next') {
-            const state = await nextPlayer(roomCode);
+            let state = await nextPlayer(roomCode);
+            if (!state) return NextResponse.json({ error: 'Auction not found' }, { status: 404 });
+
+            // Run bot bidding after presenting new player
+            if (state.status === 'bidding') {
+                state = await runBotBidding(roomCode) || state;
+            }
+
             return NextResponse.json({ state });
         }
 
@@ -67,7 +112,14 @@ export async function POST(request: NextRequest) {
             if (!result.success) {
                 return NextResponse.json({ error: result.error, state: result.state }, { status: 400 });
             }
-            return NextResponse.json({ state: result.state });
+
+            // Run bot bidding after human bid
+            let state = result.state;
+            if (state.status === 'bidding') {
+                state = await runBotBidding(roomCode) || state;
+            }
+
+            return NextResponse.json({ state });
         }
 
         if (action === 'sell') {
@@ -118,3 +170,4 @@ export async function GET(request: NextRequest) {
     const state = await getAuctionState(roomCode);
     return NextResponse.json({ state });
 }
+
