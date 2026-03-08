@@ -104,30 +104,43 @@ export default function Home() {
             <div className="h-px w-20 bg-gradient-to-r from-transparent via-[var(--color-gold)] to-transparent mx-auto" />
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 text-left">
             {[
               {
                 icon: '⚖️',
-                title: 'Market Economy',
-                desc: 'Deep auction logic featuring 120 Cr purse management, RTM cards, and realistic bot bidding profiles.',
+                title: 'Market Economy (120 Cr)',
+                desc: 'Hyper-realistic auction engine with 120 Cr purse management and dynamic RTM (Right-to-Match) card logic.',
               },
               {
                 icon: '🏟️',
-                title: 'Stadium Dynamics',
-                desc: 'Unique pitch behaviors across all 10 IPL venues. Chepauk twins while Wankhede rewards the brave.',
+                title: 'Stadium & Pitch Tech',
+                desc: 'Unique behaviors across 10 venues. Pitch degradation, moisture levels, and stadium atmosphere affect simulation.',
+              },
+              {
+                icon: '🤖',
+                title: 'Smart Bot Commanders',
+                desc: 'Advanced AI that strategically fills squads up to 85% density, targeting balanced team compositions.',
+              },
+              {
+                icon: '🔄',
+                title: 'Mixed Auction Sets',
+                desc: 'Balanced set structure alternating between Batters, Bowlers, and All-Rounders in 8-player chunks.',
+              },
+              {
+                icon: '🛡️',
+                title: 'Capped Retention',
+                desc: 'Professional player classification (Capped/Uncapped) based on international status for elite squad management.',
               },
               {
                 icon: '📉',
-                title: 'Data Integration',
-                desc: 'Official 2026 dataset integration with precision performance metrics and skill ratings.',
+                title: 'Proprietary Simulation',
+                desc: 'Physics-based ball-by-ball simulation calculating trajectory, spin, and exit velocity for every delivery.',
               },
             ].map((feature, i) => (
-              <div key={i} className="panel-gold group hover:bg-[rgba(212,175,55,0.15)] transition-all duration-500 cursor-default">
-                <div className="w-12 h-12 rounded-xl bg-black/40 flex items-center justify-center text-2xl mb-6 shadow-xl border border-white/5">
-                  {feature.icon}
-                </div>
-                <h3 className="text-xl font-black mb-3 tracking-tight text-white">{feature.title}</h3>
-                <p className="text-sm leading-relaxed text-[var(--color-text-secondary)] font-medium">{feature.desc}</p>
+              <div key={i} className="panel rounded-3xl border-white/5 bg-white/[0.01] hover:bg-white/[0.03] transition-all duration-500 p-8">
+                <div className="text-3xl mb-6">{feature.icon}</div>
+                <h3 className="text-lg font-black mb-3 text-white uppercase tracking-tight">{feature.title}</h3>
+                <p className="text-xs leading-relaxed text-[var(--color-text-secondary)] font-medium">{feature.desc}</p>
               </div>
             ))}
           </div>

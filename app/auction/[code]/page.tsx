@@ -35,6 +35,9 @@ interface AuctionState {
     currentSetIndex: number;
     currentSetPlayerIndex: number;
     totalPlayers: number;
+    // RTM
+    rtmPending?: boolean;
+    rtmOriginalTeamId?: string | null;
 }
 
 export default function AuctionPage() {
@@ -200,6 +203,18 @@ export default function AuctionPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'endAuction', roomCode: code }),
+            });
+            const data = await res.json();
+            if (data.state) setAuction(data.state);
+        } catch (err) { console.error(err); }
+    };
+
+    const handleRtm = async (execute: boolean) => {
+        try {
+            const res = await fetch('/api/auction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'rtm', roomCode: code, execute }),
             });
             const data = await res.json();
             if (data.state) setAuction(data.state);
@@ -374,6 +389,10 @@ export default function AuctionPage() {
                             onSkipSet={handleSkipSet}
                             onEndAuction={handleEndAuction}
                             onViewTeams={() => setIsSquadsModalOpen(true)}
+                            rtmPending={auction?.rtmPending}
+                            rtmOriginalTeamId={auction?.rtmOriginalTeamId}
+                            currentUserId={userId || ''}
+                            onRtm={handleRtm}
                         />
 
                         {/* Recent Sales */}

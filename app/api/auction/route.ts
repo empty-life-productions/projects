@@ -8,6 +8,7 @@ import {
     skipPlayer,
     skipSet,
     endAuction,
+    handleRtm,
     saveAuctionState,
 } from '@/lib/auctionEngine';
 import { getRoomState, fillRoomWithBots } from '@/lib/roomManager';
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     try {
-        const { action, roomCode, amount } = await request.json();
+        const { action, roomCode, amount, execute } = await request.json();
 
         if (action === 'init') {
             let room = await getRoomState(roomCode);
@@ -67,6 +68,9 @@ export async function POST(request: NextRequest) {
                 for (const retTeam of retentionState.teams) {
                     const auctionTeam = state.teams.find(t => t.userId === retTeam.userId);
                     if (!auctionTeam) continue;
+
+                    // IPL Rule: Total 6 (Retentions + RTM)
+                    auctionTeam.maxRtmCards = Math.max(0, 6 - (retTeam.retained.length || 0));
 
                     for (const retained of retTeam.retained) {
                         const playerData = IPL_PLAYERS.find(p => p.id === retained.playerId);
@@ -149,6 +153,11 @@ export async function POST(request: NextRequest) {
             const room = await getRoomState(roomCode);
             if (!room || room.hostId !== session.userId) return NextResponse.json({ error: 'Host only' }, { status: 403 });
             const state = await endAuction(roomCode);
+            return NextResponse.json({ state });
+        }
+
+        if (action === 'rtm') {
+            const state = await handleRtm(roomCode, execute === true);
             return NextResponse.json({ state });
         }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRoomState, updateRoomStatus } from '@/lib/roomManager';
 import redis from '@/lib/redis';
+import prisma from '@/lib/prisma';
 
 function getSession(request: NextRequest) {
     const sessionCookie = request.cookies.get('session');
@@ -8,56 +8,46 @@ function getSession(request: NextRequest) {
     try { return JSON.parse(sessionCookie.value); } catch { return null; }
 }
 
-export async function GET(
+export async function DELETE(
     request: NextRequest,
-    { params }: { params: Promise<{ code: string }> }
+    { params }: { params: { code: string } }
 ) {
     const session = getSession(request);
     if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { code } = await params;
-    const room = await getRoomState(code);
-    if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+    const { code } = params;
 
-    return NextResponse.json({ room });
-}
+    try {
+        const dbRoom = await prisma.room.findUnique({
+            where: { code },
+        });
 
-export async function PATCH(
-    request: NextRequest,
-    { params }: { params: Promise<{ code: string }> }
-) {
-    const session = getSession(request);
-    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-
-    const { code } = await params;
-    const room = await getRoomState(code);
-    if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
-
-    const body = await request.json();
-
-    // Handle team selection (any player can select)
-    if (body.action === 'selectTeam') {
-        const player = room.players.find(p => p.userId === session.userId);
-        if (!player) return NextResponse.json({ error: 'Player not in room' }, { status: 403 });
-
-        // Check if team is already taken by another player
-        const teamTaken = room.players.some(p => p.teamId === body.teamId && p.userId !== session.userId);
-        if (teamTaken) return NextResponse.json({ error: 'Team already taken' }, { status: 400 });
-
-        player.teamId = body.teamId;
-        player.teamName = body.teamName;
-        await redis.set(`room:${code}`, JSON.stringify(room), 'EX', 86400);
-        return NextResponse.json({ room });
-    }
-
-    // Handle status update (host only)
-    if (body.status) {
-        if (room.hostId !== session.userId) {
-            return NextResponse.json({ error: 'Only host can update room' }, { status: 403 });
+        if (!dbRoom) {
+            return NextResponse.json({ error: 'Room not found' }, { status: 404 });
         }
-        const updated = await updateRoomStatus(code, body.status);
-        return NextResponse.json({ room: updated });
-    }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+        if (dbRoom.hostId !== session.userId) {
+            return NextResponse.json({ error: 'Only host can delete room' }, { status: 403 });
+        }
+
+        // Delete from Redis
+        await redis.del(`room:${code}`);
+        await redis.del(`retention:${code}`);
+        await redis.del(`auction:${code}`);
+        await redis.del(`selection:${code}`);
+        await redis.del(`league:${code}`);
+        // match state is usually temporary but good to purge prefix if exists
+        const matchKeys = await redis.keys(`match:${code}*`);
+        if (matchKeys.length > 0) await redis.del(...matchKeys);
+
+        // Delete from DB (cascades should handle RoomPlayer, Retention, etc.)
+        await prisma.room.delete({
+            where: { code },
+        });
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('Delete room error:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
 }

@@ -36,114 +36,61 @@ function buildAuctionSets(excludeIds: Set<string> = new Set()): AuctionSet[] {
     const byBasePriceDesc = (a: CricketPlayer, b: CricketPlayer) =>
         b.basePrice - a.basePrice || bySkillDesc(a, b);
 
-    // ── SET 1: Marquee Players (₹2 Cr base, top skill) ──
-    const marquee = pick(
-        p => p.basePrice >= 2 && Math.max(p.battingSkill, p.bowlingSkill) >= 85,
-        byBasePriceDesc
-    );
+    // Categories
+    const categories = [
+        { id: 'marquee', name: 'Marquee', short: 'MARQUEE', emoji: '👑', color: '#FFD700', filter: (p: CricketPlayer) => p.basePrice >= 2 && Math.max(p.battingSkill, p.bowlingSkill) >= 85 },
+        { id: 'ind-bat', name: 'Capped Indian Batsmen', short: 'IND BAT', emoji: '🏏', color: '#4FC3F7', filter: (p: CricketPlayer) => p.nationality === 'Indian' && p.role === 'BATSMAN' && p.basePrice >= 0.5 },
+        { id: 'ind-ar', name: 'Capped Indian All-Rounders', short: 'IND AR', emoji: '⭐', color: '#66BB6A', filter: (p: CricketPlayer) => p.nationality === 'Indian' && p.role === 'ALL_ROUNDER' && p.basePrice >= 0.5 },
+        { id: 'ind-bowl', name: 'Capped Indian Bowlers', short: 'IND BOWL', emoji: '🎯', color: '#EF5350', filter: (p: CricketPlayer) => p.nationality === 'Indian' && p.role === 'BOWLER' && p.basePrice >= 0.5 },
+        { id: 'ind-wk', name: 'Capped Indian Wicket-Keepers', short: 'IND WK', emoji: '🧤', color: '#FFA726', filter: (p: CricketPlayer) => p.nationality === 'Indian' && p.role === 'WICKET_KEEPER' && p.basePrice >= 0.5 },
+        { id: 'ovs-bat', name: 'Overseas Batsmen', short: 'OVS BAT', emoji: '🌍', color: '#4FC3F7', filter: (p: CricketPlayer) => p.nationality === 'Overseas' && p.role === 'BATSMAN' && p.basePrice >= 0.5 },
+        { id: 'ovs-ar', name: 'Overseas All-Rounders', short: 'OVS AR', emoji: '🌟', color: '#66BB6A', filter: (p: CricketPlayer) => p.nationality === 'Overseas' && p.role === 'ALL_ROUNDER' && p.basePrice >= 0.5 },
+        { id: 'ovs-bowl', name: 'Overseas Bowlers', short: 'OVS BOWL', emoji: '🔥', color: '#EF5350', filter: (p: CricketPlayer) => p.nationality === 'Overseas' && p.role === 'BOWLER' && p.basePrice >= 0.5 },
+        { id: 'ovs-wk', name: 'Overseas Wicket-Keepers', short: 'OVS WK', emoji: '🥊', color: '#FFA726', filter: (p: CricketPlayer) => p.nationality === 'Overseas' && p.role === 'WICKET_KEEPER' && p.basePrice >= 0.3 },
+        { id: 'uncapped', name: 'Uncapped Indians', short: 'UNCAPPED', emoji: '🌱', color: '#81C784', filter: (p: CricketPlayer) => p.nationality === 'Indian' },
+        { id: 'ovs-rem', name: 'Remaining Overseas', short: 'OVS REM', emoji: '🌐', color: '#90CAF9', filter: (p: CricketPlayer) => p.nationality === 'Overseas' },
+    ];
 
-    // ── SET 2: Capped Indian Batsmen ──
-    const cappedIndianBat = pick(
-        p => p.nationality === 'Indian' && p.role === 'BATSMAN' && p.basePrice >= 0.5,
-        byBasePriceDesc
-    );
+    // Pre-partition players into category pools
+    const pools: Record<string, CricketPlayer[]> = {};
+    categories.forEach(cat => {
+        pools[cat.id] = pick(cat.filter, byBasePriceDesc);
+    });
 
-    // ── SET 3: Capped Indian All-Rounders ──
-    const cappedIndianAR = pick(
-        p => p.nationality === 'Indian' && p.role === 'ALL_ROUNDER' && p.basePrice >= 0.5,
-        byBasePriceDesc
-    );
-
-    // ── SET 4: Capped Indian Bowlers ──
-    const cappedIndianBowl = pick(
-        p => p.nationality === 'Indian' && p.role === 'BOWLER' && p.basePrice >= 0.5,
-        byBasePriceDesc
-    );
-
-    // ── SET 5: Capped Indian Wicket-Keepers ──
-    const cappedIndianWK = pick(
-        p => p.nationality === 'Indian' && p.role === 'WICKET_KEEPER' && p.basePrice >= 0.5,
-        byBasePriceDesc
-    );
-
-    // ── SET 6: Overseas Batsmen ──
-    const overseasBat = pick(
-        p => p.nationality === 'Overseas' && p.role === 'BATSMAN' && p.basePrice >= 0.5,
-        byBasePriceDesc
-    );
-
-    // ── SET 7: Overseas All-Rounders ──
-    const overseasAR = pick(
-        p => p.nationality === 'Overseas' && p.role === 'ALL_ROUNDER' && p.basePrice >= 0.5,
-        byBasePriceDesc
-    );
-
-    // ── SET 8: Overseas Bowlers ──
-    const overseasBowl = pick(
-        p => p.nationality === 'Overseas' && p.role === 'BOWLER' && p.basePrice >= 0.5,
-        byBasePriceDesc
-    );
-
-    // ── SET 9: Overseas Wicket-Keepers ──
-    const overseasWK = pick(
-        p => p.nationality === 'Overseas' && p.role === 'WICKET_KEEPER' && p.basePrice >= 0.3,
-        byBasePriceDesc
-    );
-
-    // ── SET 10: Uncapped / Emerging Indians ──
-    const uncappedIndian = pick(
-        p => p.nationality === 'Indian' && !used.has(p.id),
-        byBasePriceDesc
-    );
-
-    // ── SET 11: Remaining Overseas ──
-    const remainingOverseas = pick(
-        p => p.nationality === 'Overseas' && !used.has(p.id),
-        byBasePriceDesc
-    );
-
-    // ── SET 12: Accelerated — anyone left ──
-    const accelerated = pick(
-        () => true,
-        byBasePriceDesc
-    );
+    // Add remaining players to 'Accelerated'
+    const acceleratedP = pick(() => true, byBasePriceDesc);
+    pools['accel'] = acceleratedP;
+    categories.push({ id: 'accel', name: 'Accelerated Round', short: 'ACCEL', emoji: '⚡', color: '#CE93D8', filter: () => true });
 
     const sets: AuctionSet[] = [];
+    const CHUNK_SIZE = 8;
+    const counters: Record<string, number> = {};
 
-    const addSet = (id: string, name: string, shortName: string, desc: string, emoji: string, color: string, pList: CricketPlayer[]) => {
-        if (pList.length === 0) return;
+    // Mixed Set Logic: Alternate through categories
+    // We keep going until all pools are empty
+    let hasMore = true;
+    while (hasMore) {
+        hasMore = false;
+        for (const cat of categories) {
+            const pool = pools[cat.id];
+            if (pool && pool.length > 0) {
+                const chunk = pool.splice(0, CHUNK_SIZE);
+                counters[cat.id] = (counters[cat.id] || 0) + 1;
+                const setNum = counters[cat.id];
 
-        // Split into chunks of 8
-        const CHUNK_SIZE = 8;
-        for (let i = 0; i < pList.length; i += CHUNK_SIZE) {
-            const chunk = pList.slice(i, i + CHUNK_SIZE);
-            const slotNum = Math.floor(i / CHUNK_SIZE) + 1;
-            const slotSuffix = pList.length > CHUNK_SIZE ? ` SET ${slotNum}` : '';
-
-            sets.push({
-                id: `${id}-${slotNum}`,
-                name: `${name}${slotSuffix}`,
-                shortName: `${shortName}${slotSuffix}`,
-                description: desc,
-                emoji,
-                color,
-                players: chunk
-            });
+                sets.push({
+                    id: `${cat.id}-${setNum}`,
+                    name: `${cat.name}${pool.length > 0 || setNum > 1 ? ` SET ${setNum}` : ''}`,
+                    shortName: `${cat.short}${pool.length > 0 || setNum > 1 ? ` SET ${setNum}` : ''}`,
+                    description: `IPL 2026 ${cat.name} pool`,
+                    emoji: cat.emoji,
+                    color: cat.color,
+                    players: chunk
+                });
+                hasMore = true;
+            }
         }
-    };
-
-    addSet('marquee', 'Marquee Set', 'MARQUEE', 'Elite players', '👑', '#FFD700', marquee);
-    addSet('ind-bat', 'Capped Indian Batsmen', 'IND BAT', 'Indian batting stars', '🏏', '#4FC3F7', cappedIndianBat);
-    addSet('ind-ar', 'Capped Indian All-Rounders', 'IND AR', 'Indian all-rounders', '⭐', '#66BB6A', cappedIndianAR);
-    addSet('ind-bowl', 'Capped Indian Bowlers', 'IND BOWL', 'Indian bowling attack', '🎯', '#EF5350', cappedIndianBowl);
-    addSet('ind-wk', 'Capped Indian Wicket-Keepers', 'IND WK', 'Indian keepers', '🧤', '#FFA726', cappedIndianWK);
-    addSet('ovs-bat', 'Overseas Batsmen', 'OVS BAT', 'Global batting talent', '🌍', '#4FC3F7', overseasBat);
-    addSet('ovs-ar', 'Overseas All-Rounders', 'OVS AR', 'Global all-rounders', '🌟', '#66BB6A', overseasAR);
-    addSet('ovs-bowl', 'Overseas Bowlers', 'OVS BOWL', 'Global bowling stars', '🔥', '#EF5350', overseasBowl);
-    addSet('ovs-wk', 'Overseas Wicket-Keepers', 'OVS WK', 'Global keepers', '🥊', '#FFA726', overseasWK);
-    addSet('uncapped', 'Uncapped Indians', 'UNCAPPED', 'Emerging Indian talent', '🌱', '#81C784', uncappedIndian);
-    addSet('ovs-rem', 'Remaining Overseas', 'OVS REM', 'Overseas depth players', '🌐', '#90CAF9', remainingOverseas);
-    addSet('accel', 'Accelerated Round', 'ACCEL', 'Final round — all remaining', '⚡', '#CE93D8', accelerated);
+    }
 
     return sets;
 }
@@ -211,17 +158,25 @@ export async function initAuction(
     const allPlayersFlat: CricketPlayer[] = [];
     auctionSets.forEach(s => allPlayersFlat.push(...s.players));
 
-    const teams: AuctionTeam[] = players.map(p => ({
-        userId: p.userId,
-        username: p.username,
-        teamName: p.teamName,
-        purse: p.startingPurse ?? INITIAL_PURSE,
-        maxPurse: p.startingPurse ?? INITIAL_PURSE,
-        squad: [],
-        maxSquadSize: MAX_SQUAD_SIZE,
-        rtmCardsUsed: 0,
-        maxRtmCards: MAX_RTM_CARDS,
-    }));
+    const teams: AuctionTeam[] = players.map(p => {
+        // Calculate RTM cards: 6 - (already retained)
+        // If startingPurse is non-standard, it might indicate retentions happened
+        // But better is to check the excludePlayerIds vs the team's original squad
+        // However, we don't have the exact retention count here easily unless we pass it.
+        // Let's assume maxRtmCards is handled during the merge in route.ts if needed,
+        // but here we can set a default and let the route adjust it.
+        return {
+            userId: p.userId,
+            username: p.username,
+            teamName: p.teamName,
+            purse: p.startingPurse ?? INITIAL_PURSE,
+            maxPurse: p.startingPurse ?? INITIAL_PURSE,
+            squad: [],
+            maxSquadSize: MAX_SQUAD_SIZE,
+            rtmCardsUsed: 0,
+            maxRtmCards: MAX_RTM_CARDS, // Default, will be refined in route.ts
+        };
+    });
 
     const state: AuctionState = {
         roomCode,
@@ -437,12 +392,52 @@ export async function handleRtm(roomCode: string, execute: boolean): Promise<Auc
     return state;
 }
 
+// Helper for bot identification
+const BOT_USERNAMES_LOCAL = [
+    'Chennai Super Kings', 'Mumbai Indians', 'Royal Challengers Bengaluru', 'Kolkata Knight Riders',
+    'Delhi Capitals', 'Sunrisers Hyderabad', 'Punjab Kings', 'Rajasthan Royals',
+    'Lucknow Super Giants', 'Gujarat Titans',
+];
+
 export async function skipPlayer(roomCode: string): Promise<AuctionState | null> {
     const state = await getAuctionState(roomCode);
     if (!state || !state.currentPlayer) return null;
 
-    state.unsoldPlayers.push(state.currentPlayer);
-    state.status = 'unsold';
+    const botTeams = state.teams.filter(t => BOT_USERNAMES_LOCAL.includes(t.username));
+
+    // Algorithm: Find bot teams with < 21 players (85%)
+    // Sort by squad size asc, then purse desc
+    const needyBots = botTeams
+        .filter(t => t.squad.length < 21 && t.purse >= state.currentPlayer!.basePrice)
+        .sort((a, b) => a.squad.length - b.squad.length || b.purse - a.purse);
+
+    const targetBot = needyBots[0];
+
+    if (targetBot) {
+        // Assign to bot at base price
+        targetBot.squad.push({
+            player: state.currentPlayer,
+            soldTo: { userId: targetBot.userId, username: targetBot.username, teamName: targetBot.teamName },
+            soldPrice: state.currentPlayer.basePrice,
+        });
+        targetBot.purse -= state.currentPlayer.basePrice;
+        targetBot.purse = Math.round(targetBot.purse * 100) / 100;
+
+        state.soldPlayers.push({
+            player: state.currentPlayer,
+            soldTo: { userId: targetBot.userId, username: targetBot.username, teamName: targetBot.teamName },
+            soldPrice: state.currentPlayer.basePrice,
+        });
+
+        state.status = 'sold';
+    } else {
+        state.unsoldPlayers.push(state.currentPlayer);
+        state.status = 'unsold';
+    }
+
+    state.currentPlayer = null;
+    state.currentBid = 0;
+    state.currentBidder = null;
     state.timerEnd = null;
 
     await saveAuctionState(roomCode, state);
@@ -453,12 +448,35 @@ export async function skipSet(roomCode: string): Promise<AuctionState | null> {
     const state = await getAuctionState(roomCode);
     if (!state) return null;
 
-    if (state.currentPlayer && state.status === 'bidding') {
-        state.unsoldPlayers.push(state.currentPlayer);
+    const playersToSkip = [];
+    if (state.currentPlayer) playersToSkip.push(state.currentPlayer);
+    playersToSkip.push(...state.remainingPlayers);
+
+    for (const p of playersToSkip) {
+        const botTeams = state.teams.filter(t => BOT_USERNAMES_LOCAL.includes(t.username));
+        const needyBots = botTeams
+            .filter(t => t.squad.length < 21 && t.purse >= p.basePrice)
+            .sort((a, b) => a.squad.length - b.squad.length || b.purse - a.purse);
+
+        const targetBot = needyBots[0];
+        if (targetBot) {
+            targetBot.squad.push({
+                player: p,
+                soldTo: { userId: targetBot.userId, username: targetBot.username, teamName: targetBot.teamName },
+                soldPrice: p.basePrice,
+            });
+            targetBot.purse -= p.basePrice;
+            targetBot.purse = Math.round(targetBot.purse * 100) / 100;
+            state.soldPlayers.push({
+                player: p,
+                soldTo: { userId: targetBot.userId, username: targetBot.username, teamName: targetBot.teamName },
+                soldPrice: p.basePrice,
+            });
+        } else {
+            state.unsoldPlayers.push(p);
+        }
     }
-    for (const p of state.remainingPlayers) {
-        state.unsoldPlayers.push(p);
-    }
+
     state.remainingPlayers = [];
     state.currentPlayer = null;
     state.status = 'idle';

@@ -8,9 +8,9 @@ import type { MatchState, BatterState, BowlerState } from './matchEngine';
 // ======================================================
 
 const BOT_USERNAMES = [
-    'Captain_Dhoni', 'King_Kohli', 'Hitman_Rohit', 'KKR_Champion',
-    'DC_Warrior', 'SRH_Sunriser', 'PBKS_Lion', 'RR_Royal',
-    'LSG_Giant', 'GT_Titan',
+    'Chennai Super Kings', 'Mumbai Indians', 'Royal Challengers Bengaluru', 'Kolkata Knight Riders',
+    'Delhi Capitals', 'Sunrisers Hyderabad', 'Punjab Kings', 'Rajasthan Royals',
+    'Lucknow Super Giants', 'Gujarat Titans',
 ];
 
 export function isBotUser(username: string): boolean {
@@ -57,11 +57,19 @@ function analyzeSquadNeeds(squad: { player: CricketPlayer }[]): Record<string, n
 
     // How much we need each role (higher = more needed)
     const needs: Record<string, number> = {
-        BATSMAN: counts.BATSMAN < 4 ? 1.5 : counts.BATSMAN < 6 ? 1.0 : 0.5,
-        BOWLER: counts.BOWLER < 4 ? 1.5 : counts.BOWLER < 6 ? 1.0 : 0.5,
-        ALL_ROUNDER: counts.ALL_ROUNDER < 2 ? 1.4 : counts.ALL_ROUNDER < 4 ? 1.0 : 0.6,
-        WICKET_KEEPER: counts.WICKET_KEEPER < 1 ? 2.0 : counts.WICKET_KEEPER < 2 ? 1.0 : 0.3,
+        BATSMAN: counts.BATSMAN < 4 ? 1.5 : counts.BATSMAN < 6 ? 1.1 : 0.6,
+        BOWLER: counts.BOWLER < 4 ? 1.5 : counts.BOWLER < 6 ? 1.1 : 0.6,
+        ALL_ROUNDER: counts.ALL_ROUNDER < 3 ? 1.4 : counts.ALL_ROUNDER < 5 ? 1.1 : 0.7,
+        WICKET_KEEPER: counts.WICKET_KEEPER < 1 ? 2.5 : counts.WICKET_KEEPER < 2 ? 1.2 : 0.4,
     };
+
+    // Global density target: 85% of 25 = 21 players
+    // If squad is small, increase desire for ANY player
+    const densityRatio = squad.length / 21;
+    if (densityRatio < 1) {
+        Object.keys(needs).forEach(k => { needs[k] *= (1.5 - (densityRatio * 0.5)); });
+    }
+
     return needs;
 }
 

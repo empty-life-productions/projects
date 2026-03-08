@@ -26,6 +26,11 @@ interface AuctionPanelProps {
     onSkipSet?: () => void;
     onEndAuction?: () => void;
     onViewTeams?: () => void;
+    // RTM props
+    rtmPending?: boolean;
+    rtmOriginalTeamId?: string | null;
+    currentUserId?: string;
+    onRtm?: (execute: boolean) => void;
 }
 
 export default function AuctionPanel({
@@ -44,6 +49,10 @@ export default function AuctionPanel({
     onSkipSet,
     onEndAuction,
     onViewTeams,
+    rtmPending,
+    rtmOriginalTeamId,
+    currentUserId,
+    onRtm,
 }: AuctionPanelProps) {
     const [timeLeft, setTimeLeft] = useState(0);
     const BID_INCREMENT = 0.25;
@@ -266,6 +275,40 @@ export default function AuctionPanel({
                     <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
                         Your Purse: <span className="font-semibold gold-text">₹{userPurse} Cr</span>
                     </p>
+                </div>
+            )}
+            {/* RTM Decision Section */}
+            {rtmPending && (
+                <div className="mt-6 p-6 rounded-2xl border-2 border-dashed animate-pulse-gold" style={{
+                    background: 'rgba(212, 175, 55, 0.05)',
+                    borderColor: 'var(--color-gold)',
+                }}>
+                    <div className="text-center">
+                        <span className="text-3xl mb-3 block">🛡️</span>
+                        <h3 className="text-lg font-black gold-text mb-1 uppercase tracking-tight">RTM Opportunity</h3>
+                        <p className="text-xs font-medium mb-6 text-[var(--color-text-secondary)]">
+                            {currentUserId === rtmOriginalTeamId
+                                ? "This was your player! Do you want to match the highest bid and bring them back?"
+                                : "The original team is deciding whether to use their Right-to-Match card..."}
+                        </p>
+
+                        {currentUserId === rtmOriginalTeamId && onRtm && (
+                            <div className="flex gap-4">
+                                <button
+                                    onClick={() => onRtm(true)}
+                                    className="flex-1 btn-primary py-4 text-xs font-black tracking-widest"
+                                >
+                                    USE RTM CARD (₹{currentBid} Cr)
+                                </button>
+                                <button
+                                    onClick={() => onRtm(false)}
+                                    className="flex-1 btn-secondary py-4 text-xs font-black tracking-widest opacity-60"
+                                >
+                                    DECLINE
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 

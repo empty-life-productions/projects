@@ -259,28 +259,21 @@ export default function RoomPage() {
                         </p>
                         <div className="flex items-center justify-center gap-3 flex-wrap">
                             <button
-                                onClick={addBots}
-                                disabled={addingBots || room.players.length >= room.maxPlayers}
-                                className="btn-secondary px-6 py-3"
-                            >
-                                {addingBots ? 'Adding...' : '🤖 Add 2 Bot Players'}
-                            </button>
-                            <button
                                 id="start-retention-btn"
                                 onClick={startRetention}
-                                disabled={starting || room.players.length < 2}
-                                className="btn-primary px-8 py-3"
+                                disabled={starting}
+                                className="btn-primary px-10 py-4 text-sm font-black"
                             >
-                                {starting ? 'Starting...' : `🏏 Start Retention Phase (${room.players.length} players)`}
+                                {starting ? 'INITIATING...' : `🚀 START RETENTION (AUTO-FILL BOTS)`}
                             </button>
                             <button
                                 id="skip-retention-btn"
                                 onClick={startAuction}
-                                disabled={starting || room.players.length < 2}
-                                className="btn-secondary px-6 py-3 text-xs opacity-60"
+                                disabled={starting}
+                                className="btn-secondary px-6 py-4 text-xs opacity-60"
                                 title="Skip retention and go straight to the Mega Auction"
                             >
-                                Skip → Auction
+                                SKIP → MEGA AUCTION
                             </button>
                         </div>
                     </div>

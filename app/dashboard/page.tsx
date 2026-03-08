@@ -85,6 +85,24 @@ export default function DashboardPage() {
         }
     };
 
+    const deleteRoom = async (code: string) => {
+        if (!confirm(`Are you sure you want to destroy room ${code}? This will purge all session data.`)) return;
+
+        try {
+            const res = await fetch(`/api/rooms/${code}`, {
+                method: 'DELETE',
+            });
+            if (res.ok) {
+                setRooms(rooms.filter(r => r.code !== code));
+            } else {
+                const data = await res.json();
+                setError(data.error || 'Failed to delete room');
+            }
+        } catch {
+            setError('Failed to delete room');
+        }
+    };
+
     const handleJoinRoom = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!joinCode.trim()) return;
@@ -237,6 +255,7 @@ export default function DashboardPage() {
                                                 hostId={room.hostId}
                                                 currentUserId={userId || ''}
                                                 onJoin={navigateToRoom}
+                                                onDelete={deleteRoom}
                                             />
                                         </div>
                                     ))}

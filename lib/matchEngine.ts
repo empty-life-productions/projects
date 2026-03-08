@@ -1,4 +1,5 @@
 import redis from './redis';
+import { STADIUMS, getStadiumById } from '@/data/stadiums';
 
 export interface MatchState {
     matchId: string;
@@ -129,12 +130,27 @@ function simulateBall(
     freeHit: boolean,
     target: number | null,
     currentScore: number,
-    ballsRemaining: number
+    ballsRemaining: number,
+    stadiumId?: string,
+    innings?: number
 ): BallResult {
+    const stadium = stadiumId ? getStadiumById(stadiumId) : null;
     const { batMod, bowlMod } = getPitchModifier(pitchType, phase);
 
     let batSkill = batter.player.battingSkill * batMod;
     let bowlSkill = bowler.player.bowlingSkill * bowlMod;
+
+    // Apply Stadium Factors
+    if (stadium) {
+        // Altitude boost for batters
+        batSkill *= stadium.altitudeFactor;
+
+        // Dew factor (affects 2nd innings bowlers, especially spinners)
+        if (innings === 2 && Math.random() < stadium.dewProbability) {
+            const dewImpact = (bowler.player.role === 'BOWLER' && batter.player.battingSkill < bowler.player.bowlingSkill) ? 0.85 : 0.92;
+            bowlSkill *= dewImpact;
+        }
+    }
 
     // Captain boost
     const isCaptain = batter.player.isCaptain;
@@ -196,7 +212,8 @@ function simulateBall(
     }
 
     // Runs distribution based on skill
-    const runProbs = getRunProbabilities(effectiveBat, effectiveBowl, phase, pressureFactor);
+    const stadiumBoundarySize = stadium?.boundarySize || 1.0;
+    const runProbs = getRunProbabilities(effectiveBat, effectiveBowl, phase, pressureFactor, stadiumBoundarySize);
     const runRoll = Math.random();
     let cumulative = 0;
     let runs = 0;
@@ -232,9 +249,11 @@ function getRunProbabilities(
     batSkill: number,
     bowlSkill: number,
     phase: string,
-    pressureFactor: number
+    pressureFactor: number,
+    boundarySize: number = 1.0
 ): [number, number][] {
     const skillRatio = batSkill / (batSkill + bowlSkill);
+    const boundaryMod = 1 / boundarySize;
 
     // Base probabilities [runs, probability]
     let probs: [number, number][];
@@ -245,8 +264,8 @@ function getRunProbabilities(
             [1, 0.30],
             [2, 0.12],
             [3, 0.03],
-            [4, 0.15 + skillRatio * 0.05],
-            [6, 0.10 + skillRatio * 0.05],
+            [4, (0.15 + skillRatio * 0.05) * boundaryMod],
+            [6, (0.10 + skillRatio * 0.05) * boundaryMod],
         ];
     } else if (phase === 'death') {
         probs = [
@@ -254,8 +273,8 @@ function getRunProbabilities(
             [1, 0.25],
             [2, 0.12],
             [3, 0.03],
-            [4, 0.18 + skillRatio * 0.05],
-            [6, 0.17 + skillRatio * 0.08],
+            [4, (0.18 + skillRatio * 0.05) * boundaryMod],
+            [6, (0.17 + skillRatio * 0.08) * boundaryMod],
         ];
     } else {
         probs = [
@@ -263,14 +282,13 @@ function getRunProbabilities(
             [1, 0.30],
             [2, 0.12],
             [3, 0.03],
-            [4, 0.12 + skillRatio * 0.05],
-            [6, 0.08 + skillRatio * 0.03],
+            [4, (0.12 + skillRatio * 0.05) * boundaryMod],
+            [6, (0.08 + skillRatio * 0.03) * boundaryMod],
         ];
     }
 
     // Apply pressure factor
     if (pressureFactor < 1.0) {
-        // Under pressure, more dots and wickets, fewer boundaries
         probs = probs.map(([r, p]) => {
             if (r === 0) return [r, p * 1.2] as [number, number];
             if (r >= 4) return [r, p * pressureFactor] as [number, number];
@@ -447,7 +465,8 @@ export function processNextBall(state: MatchState): { state: MatchState; ballRes
     const ballResult = simulateBall(
         state.striker, state.currentBowler, state.pitchType, state.matchPhase,
         state.freeHit, state.target, battingTeam.score,
-        (TOTAL_OVERS * 6) - (battingTeam.overs * 6 + battingTeam.balls)
+        (TOTAL_OVERS * 6) - (battingTeam.overs * 6 + battingTeam.balls),
+        state.stadiumId, state.innings
     );
 
     // Process result
