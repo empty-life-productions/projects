@@ -110,13 +110,29 @@ function buildAuctionSets(excludeIds: Set<string> = new Set()): AuctionSet[] {
 
     const sets: AuctionSet[] = [];
 
-    const addSet = (id: string, name: string, shortName: string, desc: string, emoji: string, color: string, players: CricketPlayer[]) => {
-        if (players.length > 0) {
-            sets.push({ id, name, shortName, description: desc, emoji, color, players });
+    const addSet = (id: string, name: string, shortName: string, desc: string, emoji: string, color: string, pList: CricketPlayer[]) => {
+        if (pList.length === 0) return;
+
+        // Split into chunks of 8
+        const CHUNK_SIZE = 8;
+        for (let i = 0; i < pList.length; i += CHUNK_SIZE) {
+            const chunk = pList.slice(i, i + CHUNK_SIZE);
+            const slotNum = Math.floor(i / CHUNK_SIZE) + 1;
+            const slotSuffix = pList.length > CHUNK_SIZE ? ` SET ${slotNum}` : '';
+
+            sets.push({
+                id: `${id}-${slotNum}`,
+                name: `${name}${slotSuffix}`,
+                shortName: `${shortName}${slotSuffix}`,
+                description: desc,
+                emoji,
+                color,
+                players: chunk
+            });
         }
     };
 
-    addSet('marquee', 'Marquee Set', 'MARQUEE', 'Elite players with ₹2Cr+ base price', '👑', '#FFD700', marquee);
+    addSet('marquee', 'Marquee Set', 'MARQUEE', 'Elite players', '👑', '#FFD700', marquee);
     addSet('ind-bat', 'Capped Indian Batsmen', 'IND BAT', 'Indian batting stars', '🏏', '#4FC3F7', cappedIndianBat);
     addSet('ind-ar', 'Capped Indian All-Rounders', 'IND AR', 'Indian all-rounders', '⭐', '#66BB6A', cappedIndianAR);
     addSet('ind-bowl', 'Capped Indian Bowlers', 'IND BOWL', 'Indian bowling attack', '🎯', '#EF5350', cappedIndianBowl);
@@ -154,6 +170,9 @@ export interface AuctionState {
     currentSetIndex: number;
     currentSetPlayerIndex: number;
     totalPlayers: number;
+    // RTM state
+    rtmPending: boolean;
+    rtmOriginalTeamId: string | null;
 }
 
 export interface SoldPlayer {
@@ -170,12 +189,15 @@ export interface AuctionTeam {
     maxPurse: number;
     squad: SoldPlayer[];
     maxSquadSize: number;
+    rtmCardsUsed: number;
+    maxRtmCards: number;
 }
 
-const INITIAL_PURSE = 100; // Cr
+const INITIAL_PURSE = 120; // Cr
 const MAX_SQUAD_SIZE = 25;
 const BID_INCREMENT = 0.25;
 const BID_TIMER_SECONDS = 15;
+const MAX_RTM_CARDS = 3;
 
 export async function initAuction(
     roomCode: string,
@@ -197,6 +219,8 @@ export async function initAuction(
         maxPurse: p.startingPurse ?? INITIAL_PURSE,
         squad: [],
         maxSquadSize: MAX_SQUAD_SIZE,
+        rtmCardsUsed: 0,
+        maxRtmCards: MAX_RTM_CARDS,
     }));
 
     const state: AuctionState = {
@@ -216,6 +240,8 @@ export async function initAuction(
         currentSetIndex: 0,
         currentSetPlayerIndex: 0,
         totalPlayers: allPlayersFlat.length,
+        rtmPending: false,
+        rtmOriginalTeamId: null,
     };
 
     await saveAuctionState(roomCode, state);
@@ -307,11 +333,37 @@ export async function placeBid(
     return { success: true, state };
 }
 
+async function findOriginalTeam(playerName: string): Promise<string | null> {
+    const { RETENTION_POOL } = await import('@/data/retentionPool');
+    for (const [teamName, players] of Object.entries(RETENTION_POOL)) {
+        if (players.some(p => p.name.toLowerCase() === playerName.toLowerCase())) {
+            return teamName;
+        }
+    }
+    return null;
+}
+
 export async function sellCurrentPlayer(roomCode: string): Promise<AuctionState | null> {
     const state = await getAuctionState(roomCode);
     if (!state || !state.currentPlayer) return null;
 
     if (state.currentBidder) {
+        // Check for RTM eligibility
+        const originalTeamName = await findOriginalTeam(state.currentPlayer.name);
+        const originalTeam = state.teams.find(t => t.teamName === originalTeamName);
+
+        // If there's an original team, they have RTM cards left, and they aren't the current bidder
+        if (originalTeam &&
+            originalTeam.rtmCardsUsed < originalTeam.maxRtmCards &&
+            originalTeam.userId !== state.currentBidder.userId &&
+            originalTeam.purse >= state.currentBid) {
+
+            state.rtmPending = true;
+            state.rtmOriginalTeamId = originalTeam.userId;
+            await saveAuctionState(roomCode, state);
+            return state;
+        }
+
         const soldPlayer: SoldPlayer = {
             player: state.currentPlayer,
             soldTo: state.currentBidder,
@@ -333,6 +385,53 @@ export async function sellCurrentPlayer(roomCode: string): Promise<AuctionState 
         state.status = 'unsold';
     }
 
+    state.timerEnd = null;
+    await saveAuctionState(roomCode, state);
+    return state;
+}
+
+export async function handleRtm(roomCode: string, execute: boolean): Promise<AuctionState | null> {
+    const state = await getAuctionState(roomCode);
+    if (!state || !state.rtmPending || !state.currentPlayer || !state.currentBidder) return null;
+
+    const originalTeam = state.teams.find(t => t.userId === state.rtmOriginalTeamId);
+    if (!originalTeam) return null;
+
+    if (execute) {
+        // Original team uses RTM
+        const soldPlayer: SoldPlayer = {
+            player: state.currentPlayer,
+            soldTo: {
+                userId: originalTeam.userId,
+                username: originalTeam.username,
+                teamName: originalTeam.teamName
+            },
+            soldPrice: state.currentBid,
+        };
+        state.soldPlayers.push(soldPlayer);
+        originalTeam.purse -= state.currentBid;
+        originalTeam.purse = Math.round(originalTeam.purse * 100) / 100;
+        originalTeam.squad.push(soldPlayer);
+        originalTeam.rtmCardsUsed++;
+    } else {
+        // RTM declined, goes to current highest bidder
+        const soldPlayer: SoldPlayer = {
+            player: state.currentPlayer,
+            soldTo: state.currentBidder,
+            soldPrice: state.currentBid,
+        };
+        state.soldPlayers.push(soldPlayer);
+        const team = state.teams.find(t => t.userId === state.currentBidder!.userId);
+        if (team) {
+            team.purse -= state.currentBid;
+            team.purse = Math.round(team.purse * 100) / 100;
+            team.squad.push(soldPlayer);
+        }
+    }
+
+    state.rtmPending = false;
+    state.rtmOriginalTeamId = null;
+    state.status = 'sold';
     state.timerEnd = null;
     await saveAuctionState(roomCode, state);
     return state;

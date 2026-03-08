@@ -7,7 +7,7 @@ export const MAX_RETENTIONS = 4;
 export const MAX_OVERSEAS_RETENTIONS = 2;
 export const RETENTION_TIMER_SECONDS = 180; // 3 minutes
 export const RETENTION_COSTS = [16, 12, 8, 6]; // Cr per slot (1st→4th)
-export const INITIAL_PURSE = 100; // Cr
+export const INITIAL_PURSE = 120; // Cr
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface RetainedPlayer {

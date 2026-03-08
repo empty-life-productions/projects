@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 
-const wb = xlsx.readFile(join(rootDir, 'IPL_2026_Retention_Dataset (1).xlsx'));
+const wb = xlsx.readFile(join(rootDir, 'IPL_2026_Retention_Dataset_Complete (2).xlsx'));
 
 // ─── Nat normalization ────────────────────────────────────────────────────────
 function normalizeNat(nat) {
@@ -30,52 +30,33 @@ function normalizeRole(role) {
     }
 }
 
-// ─── Team-specific sheets ─────────────────────────────────────────────────────
-// Col indices in per-team sheets: 0=#, 1=Name, 2=Role, 3=Nat, 4=Age, 5=Caps, 6=Price2025, 7=CapStatus, 8=Status
-const TEAM_SHEETS = [
-    'Chennai Super Kings',
-    'Delhi Capitals',
-    'Gujarat Titans',
-    'Kolkata Knight Riders',
-    'Lucknow Super Giants',
-    'Mumbai Indians',
-    'Punjab Kings',
-    'Rajasthan Royals',
-    'Royal Challengers Bengaluru',
-    'Sunrisers Hyderabad',
-];
-
-// Statuses that make a player eligible for the retention pool
-// (All players who were in the squad — user decides who to actually retain)
-const ELIGIBLE_STATUSES = ['Retained', 'Released'];
-
 const pool = {};
+const ws = wb.Sheets[wb.SheetNames[0]];
+const data = xlsx.utils.sheet_to_json(ws, { header: 1 });
 
-for (const teamName of TEAM_SHEETS) {
-    const ws = wb.Sheets[teamName];
-    if (!ws) { console.warn('Sheet not found:', teamName); continue; }
+// Row 0 = title, Row 1 = headers, Row 2+ = data
+const rows = data.slice(2).filter(r => r[1] && typeof r[1] === 'string');
 
-    const data = xlsx.utils.sheet_to_json(ws, { header: 1 });
-    // Row 0 = title, Row 1 = headers, Row 2+ = data
-    const rows = data.slice(2).filter(r => r[1] && typeof r[1] === 'string');
+for (const r of rows) {
+    const teamName = String(r[1]).trim();
+    if (!pool[teamName]) pool[teamName] = [];
 
-    const players = rows
-        .filter(r => ELIGIBLE_STATUSES.includes(r[8]))
-        .map(r => ({
-            name: String(r[1]).trim(),
-            role: normalizeRole(r[2]),
-            nationality: normalizeNat(r[3]),
-            auctionPrice2025: Number(r[6]) || 0,
-            capStatus: r[7] === 'Capped' ? 'Capped' : 'Uncapped',
-        }));
+    pool[teamName].push({
+        name: String(r[2]).trim(),
+        role: normalizeRole(r[3]),
+        nationality: normalizeNat(r[4]),
+        auctionPrice2025: 0, // Not present in the new dataset
+        capStatus: r[8] === 'Capped' ? 'Capped' : 'Uncapped',
+    });
+}
 
-    pool[teamName] = players;
-    console.log(`${teamName}: ${players.length} eligible players`);
+for (const teamName in pool) {
+    console.log(`${teamName}: ${pool[teamName].length} eligible players`);
 }
 
 // ─── Generate TypeScript file ─────────────────────────────────────────────────
 const lines = [
-    `// Auto-generated from IPL_2026_Retention_Dataset (1).xlsx — do not edit manually`,
+    `// Auto-generated from IPL_2026_Retention_Dataset_Complete (2).xlsx — do not edit manually`,
     `// Run: node scripts/xlsx_to_retention.mjs`,
     ``,
     `export type PlayerRole = 'BATSMAN' | 'BOWLER' | 'ALL_ROUNDER' | 'WICKET_KEEPER';`,

@@ -182,16 +182,16 @@ export async function getUserRooms(userId: string) {
 }
 
 const BOT_PROFILES = [
-    { username: 'Captain_Dhoni', teamId: 'csk' },
-    { username: 'King_Kohli', teamId: 'rcb' },
-    { username: 'Hitman_Rohit', teamId: 'mi' },
-    { username: 'KKR_Champion', teamId: 'kkr' },
-    { username: 'DC_Warrior', teamId: 'dc' },
-    { username: 'SRH_Sunriser', teamId: 'srh' },
-    { username: 'PBKS_Lion', teamId: 'pbks' },
-    { username: 'RR_Royal', teamId: 'rr' },
-    { username: 'LSG_Giant', teamId: 'lsg' },
-    { username: 'GT_Titan', teamId: 'gt' },
+    { username: 'Chennai Super Kings', teamId: 'csk' },
+    { username: 'Mumbai Indians', teamId: 'mi' },
+    { username: 'Royal Challengers Bengaluru', teamId: 'rcb' },
+    { username: 'Kolkata Knight Riders', teamId: 'kkr' },
+    { username: 'Delhi Capitals', teamId: 'dc' },
+    { username: 'Sunrisers Hyderabad', teamId: 'srh' },
+    { username: 'Punjab Kings', teamId: 'pbks' },
+    { username: 'Rajasthan Royals', teamId: 'rr' },
+    { username: 'Lucknow Super Giants', teamId: 'lsg' },
+    { username: 'Gujarat Titans', teamId: 'gt' },
 ];
 
 import { IPL_TEAMS } from '@/data/teams';

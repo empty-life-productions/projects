@@ -34,6 +34,7 @@ export interface MatchState {
     // History
     firstInningsBattingOrder?: BatterState[];
     firstInningsBowlingOrder?: BowlerState[];
+    stadiumId?: string;
 }
 
 export interface TossResult {
@@ -136,8 +137,10 @@ function simulateBall(
     let bowlSkill = bowler.player.bowlingSkill * bowlMod;
 
     // Captain boost
-    if (batter.player.isCaptain) batSkill += 3;
-    if (bowler.player.isCaptain) bowlSkill += 2;
+    const isCaptain = batter.player.isCaptain;
+    const isBowlerCaptain = bowler.player.isCaptain;
+    if (isCaptain) batSkill += 3;
+    if (isBowlerCaptain) bowlSkill += 2;
 
     // Form factor (random variance)
     const form = 0.85 + Math.random() * 0.3;
@@ -318,6 +321,7 @@ export function initMatchState(
         awayWkId?: string;
         homeOpeningBowlerId?: string;
         awayOpeningBowlerId?: string;
+        stadiumId?: string;
     }
 ): MatchState {
     // Apply captain and WK flags
@@ -415,6 +419,7 @@ export function initMatchState(
         awayWkId: options?.awayWkId,
         firstInningsBattingOrder: [],
         firstInningsBowlingOrder: [],
+        stadiumId: options?.stadiumId,
     };
 }
 
