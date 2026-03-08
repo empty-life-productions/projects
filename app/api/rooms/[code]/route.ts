@@ -10,12 +10,12 @@ function getSession(request: NextRequest) {
 
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { code: string } }
+    { params }: { params: Promise<{ code: string }> }
 ) {
     const session = getSession(request);
     if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { code } = params;
+    const { code } = await params;
 
     try {
         const dbRoom = await prisma.room.findUnique({
