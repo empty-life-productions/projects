@@ -170,15 +170,19 @@ export async function getUserRooms(userId: string) {
         orderBy: { joinedAt: 'desc' },
     });
 
-    return rooms.map(rp => ({
-        code: rp.room.code,
-        status: rp.room.status.toLowerCase(),
-        playerCount: rp.room.players.length,
-        maxPlayers: rp.room.maxPlayers,
-        hostId: rp.room.hostId,
-        players: rp.room.players.map(p => p.user.username),
-        createdAt: rp.room.createdAt.toISOString(),
-    }));
+    return rooms
+        .filter(rp => rp.room !== null)
+        .map(rp => ({
+            code: rp.room.code,
+            status: rp.room.status.toLowerCase(),
+            playerCount: rp.room.players.length,
+            maxPlayers: rp.room.maxPlayers,
+            hostId: rp.room.hostId,
+            players: rp.room.players
+                .filter(p => p.user !== null)
+                .map(p => p.user.username),
+            createdAt: rp.room.createdAt.toISOString(),
+        }));
 }
 
 const BOT_PROFILES = [

@@ -63,7 +63,7 @@ model Fixture {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  room     Room @relation(fields: [roomId], references: [id])
+  room     Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, scheduledOrder])
 }
@@ -91,7 +91,7 @@ model PlayerLeagueStats {
   runsConceded  Int    @default(0)
   catches       Int    @default(0)
 
-  room Room @relation(fields: [roomId], references: [id])
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, playerId])
 }
@@ -103,7 +103,7 @@ model RoomPlayer {
   joinedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
-  room Room @relation(fields: [roomId], references: [id])
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roomId])
 }
@@ -116,7 +116,7 @@ model Team {
   purse    Float  @default(100)
   
   user    User   @relation(fields: [userId], references: [id])
-  room    Room   @relation(fields: [roomId], references: [id])
+  room    Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
   
   auctionResults AuctionResult[]
   matchesHome    Match[]         @relation("HomeTeam")
@@ -158,7 +158,7 @@ model AuctionResult {
   round     Int    @default(1)
   createdAt DateTime @default(now())
 
-  room   Room   @relation(fields: [roomId], references: [id])
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
   player Player @relation(fields: [playerId], references: [id])
   team   Team   @relation(fields: [teamId], references: [id])
 
@@ -209,7 +209,7 @@ model Match {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  room     Room @relation(fields: [roomId], references: [id])
+  room     Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   homeTeam Team @relation("HomeTeam", fields: [homeTeamId], references: [id])
   awayTeam Team @relation("AwayTeam", fields: [awayTeamId], references: [id])
 
