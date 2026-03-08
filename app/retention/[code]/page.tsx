@@ -246,11 +246,47 @@ export default function RetentionPage() {
         return { ok: true };
     };
 
-    // ── Loading ───────────────────────────────────────────────────────────────
-    if (loading || !state) {
+    // ── Loading & Error ──────────────────────────────────────────────────────
+    if (loading && !state) {
         return (
-            <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--color-bg-primary)' }}>
+            <div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{ background: 'var(--color-bg-primary)' }}>
                 <div className="shimmer w-16 h-16 rounded-2xl" />
+                <div className="text-center">
+                    <p className="gold-text font-black tracking-widest text-xs mb-2">INITIALIZING ARENA</p>
+                    <p className="text-[10px] text-[var(--color-text-muted)] animate-pulse">Syncing squad data and initializing bots...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!state) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center gap-8 px-6" style={{ background: 'var(--color-bg-primary)' }}>
+                <div className="text-center max-w-md">
+                    <div className="w-20 h-20 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <span className="text-3xl">⚠️</span>
+                    </div>
+                    <h1 className="text-2xl font-black text-white mb-3">Phase Sync Error</h1>
+                    <p className="text-sm leading-relaxed mb-8" style={{ color: 'var(--color-text-muted)' }}>
+                        We couldn't retrieve the retention state for room <span className="gold-text font-mono font-bold">{code}</span>.
+                        This usually happens if the session expired or the host hasn't finished initializing the room.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="btn-primary py-4 px-8 w-full font-bold"
+                        >
+                            🔄 Retry Connection
+                        </button>
+                        <button
+                            onClick={() => router.push('/dashboard')}
+                            className="text-xs font-semibold py-2"
+                            style={{ color: 'var(--color-text-muted)' }}
+                        >
+                            Return to Dashboard
+                        </button>
+                    </div>
+                </div>
             </div>
         );
     }

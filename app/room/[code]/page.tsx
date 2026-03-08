@@ -71,14 +71,24 @@ export default function RoomPage() {
     const startRetention = async () => {
         setStarting(true);
         try {
-            await fetch('/api/retention', {
+            const res = await fetch('/api/retention', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'init', roomCode: code }),
             });
-            router.push(`/retention/${code}`);
+
+            if (res.ok) {
+                // Wait briefly for state to propagate
+                setTimeout(() => {
+                    router.push(`/retention/${code}`);
+                }, 500);
+            } else {
+                const data = await res.json();
+                alert(`Failed to start retention: ${data.error || 'Server error'}`);
+            }
         } catch (err) {
             console.error('Failed to start retention:', err);
+            alert('Failed to start retention. Please check your connection.');
         } finally {
             setStarting(false);
         }

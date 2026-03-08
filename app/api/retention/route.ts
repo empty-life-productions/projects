@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
 
     // ── init (host only) ─────────────────────────────────────────────────────
     if (action === 'init') {
+        console.log(`[Retention] Initializing room ${roomCode}`);
         let room = await getRoomState(roomCode);
         if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
         if (room.hostId !== session.userId) {
@@ -61,14 +62,17 @@ export async function POST(request: NextRequest) {
         // Auto-fill bots to 10 players if needed
         if (room.players.length < 10) {
             const missing = 10 - room.players.length;
+            console.log(`[Retention] Auto-filling ${missing} bots for room ${roomCode}`);
             await fillRoomWithBots(roomCode, missing);
             // Refresh room state after adding bots
             const updatedRoom = await getRoomState(roomCode);
             if (updatedRoom) room = updatedRoom;
         }
 
+        console.log(`[Retention] Creating retention state for ${room.players.length} players`);
         const state = await initRetention(roomCode, room.players);
         await updateRoomStatus(roomCode, 'retention');
+        console.log(`[Retention] Room ${roomCode} moved to retention phase`);
         return NextResponse.json({ state });
     }
 
