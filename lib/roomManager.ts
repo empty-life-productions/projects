@@ -150,6 +150,70 @@ export async function updatePlayerTeam(code: string, userId: string, teamId: str
     return state;
 }
 
+export async function fillRoomWithBots(code: string, count: number): Promise<string[]> {
+    const state = await getRoomState(code);
+    if (!state) return [];
+
+    const BOT_PROFILES = [
+        { username: 'Chennai Super Kings', teamId: 'csk' },
+        { username: 'Mumbai Indians', teamId: 'mi' },
+        { username: 'Royal Challengers Bengaluru', teamId: 'rcb' },
+        { username: 'Kolkata Knight Riders', teamId: 'kkr' },
+        { username: 'Delhi Capitals', teamId: 'dc' },
+        { username: 'Sunrisers Hyderabad', teamId: 'srh' },
+        { username: 'Punjab Kings', teamId: 'pbks' },
+        { username: 'Rajasthan Royals', teamId: 'rr' },
+        { username: 'Lucknow Super Giants', teamId: 'lsg' },
+        { username: 'Gujarat Titans', teamId: 'gt' },
+    ];
+
+    const added = [];
+    const existingUsernames = state.players.map(p => p.username.toLowerCase());
+    const existingTeamIds = state.players.map(p => p.teamId);
+
+    const availableBots = BOT_PROFILES.filter(
+        b => !existingUsernames.includes(b.username.toLowerCase()) && !existingTeamIds.includes(b.teamId)
+    );
+
+    for (let i = 0; i < count && i < availableBots.length; i++) {
+        const bot = availableBots[i];
+        const botId = `bot_${uuidv4().substring(0, 8)}`;
+
+        state.players.push({
+            userId: botId,
+            username: bot.username,
+            teamId: bot.teamId,
+            teamName: bot.username
+        });
+
+        // Create player in DB
+        await prisma.user.upsert({
+            where: { username: bot.username },
+            update: {},
+            create: { id: botId, username: bot.username }
+        });
+
+        await prisma.roomPlayer.create({
+            data: { userId: botId, roomId: state.id }
+        });
+
+        await prisma.team.create({
+            data: {
+                id: uuidv4(),
+                name: bot.username,
+                userId: botId,
+                roomId: state.id,
+                purse: 120
+            }
+        });
+
+        added.push(bot.username);
+    }
+
+    await redis.set(`room:${code}`, JSON.stringify(state), 'EX', 86400);
+    return added;
+}
+
 export async function getUserRooms(userId: string) {
     const rooms = await prisma.roomPlayer.findMany({
         where: { userId },
