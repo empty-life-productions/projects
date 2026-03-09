@@ -444,6 +444,36 @@ async function assignToBestBot(p: CricketPlayer, teams: AuctionTeam[]) {
     return matchedBots[0]?.team ?? null;
 }
 
+/**
+ * Calculate a realistic simulation price for a player being assigned via Smart Skip.
+ * Price varies based on:
+ *  - Player skill (higher skill → closer to market rate)
+ *  - Team role need (higher urgency → pay a premium)
+ *  - Available purse (capped so teams don't overspend)
+ */
+function simulateSkipPrice(player: CricketPlayer, team: AuctionTeam): number {
+    const skill = Math.max(player.battingSkill, player.bowlingSkill);
+    const needs = analyzeSquadNeeds(team.squad);
+    const needMultiplier = Math.min(2.0, needs[player.role] ?? 1.0);
+
+    // Skill multiplier: 0.5× at skill 50, up to 2.5× at skill 95+
+    const skillMultiplier = 0.5 + ((skill - 50) / 45) * 2.0;
+
+    // Estimated market price based on base + skill + need
+    const estimatedPrice = player.basePrice * Math.max(1.0, skillMultiplier) * needMultiplier;
+
+    // Add slight randomness (+/- 15%) to simulate competitive bidding
+    const jitter = 0.85 + Math.random() * 0.30;
+    const rawPrice = estimatedPrice * jitter;
+
+    // Cap at 30% of bot's available purse so they don't bust
+    const maxAffordable = team.purse * 0.30;
+    const finalPrice = Math.max(player.basePrice, Math.min(rawPrice, maxAffordable));
+
+    // Round to nearest 0.25 Cr increment (IPL style)
+    return Math.round(finalPrice / BID_INCREMENT) * BID_INCREMENT;
+}
+
 export async function skipPlayer(roomCode: string): Promise<AuctionState | null> {
     const state = await getAuctionState(roomCode);
     if (!state || !state.currentPlayer) return null;
@@ -451,13 +481,14 @@ export async function skipPlayer(roomCode: string): Promise<AuctionState | null>
     const targetBot = await assignToBestBot(state.currentPlayer, state.teams);
 
     if (targetBot) {
+        const price = simulateSkipPrice(state.currentPlayer, targetBot);
         const soldPlayer: SoldPlayer = {
             player: state.currentPlayer,
             soldTo: { userId: targetBot.userId, username: targetBot.username, teamName: targetBot.teamName },
-            soldPrice: state.currentPlayer.basePrice,
+            soldPrice: price,
         };
         targetBot.squad.push(soldPlayer);
-        targetBot.purse -= state.currentPlayer.basePrice;
+        targetBot.purse -= price;
         targetBot.purse = Math.round(targetBot.purse * 100) / 100;
         state.soldPlayers.push(soldPlayer);
         state.status = 'sold';
@@ -486,13 +517,14 @@ export async function skipSet(roomCode: string): Promise<AuctionState | null> {
     for (const p of playersToSkip) {
         const targetBot = await assignToBestBot(p, state.teams);
         if (targetBot) {
+            const price = simulateSkipPrice(p, targetBot);
             const soldPlayer: SoldPlayer = {
                 player: p,
                 soldTo: { userId: targetBot.userId, username: targetBot.username, teamName: targetBot.teamName },
-                soldPrice: p.basePrice,
+                soldPrice: price,
             };
             targetBot.squad.push(soldPlayer);
-            targetBot.purse -= p.basePrice;
+            targetBot.purse -= price;
             targetBot.purse = Math.round(targetBot.purse * 100) / 100;
             state.soldPlayers.push(soldPlayer);
         } else {
