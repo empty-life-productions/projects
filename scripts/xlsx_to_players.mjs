@@ -13,7 +13,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 
 // ─── Read the xlsx ──────────────────────────────────────────────────────────
-const wb = xlsx.readFile(join(rootDir, 'IPL_2026_Auction_Dataset.xlsx'));
+const wb = xlsx.readFile(join(rootDir, 'IPL_2026_Auction_Dataset_Complete.xlsx'));
 const ws = wb.Sheets[wb.SheetNames[0]];
 const raw = xlsx.utils.sheet_to_json(ws, { header: 1 });
 
