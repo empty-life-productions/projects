@@ -145,7 +145,7 @@ const INITIAL_PURSE = 120; // Cr
 const MAX_SQUAD_SIZE = 25;
 const BID_INCREMENT = 0.25;
 const BID_TIMER_SECONDS = 15;
-const MAX_RTM_CARDS = 3;
+const MAX_RTM_CARDS = 2;
 
 export interface AuctionEnrichedTeam {
     userId: string;
@@ -195,8 +195,8 @@ export async function initAuction(
             squad: retainedSold,
             maxSquadSize: MAX_SQUAD_SIZE,
             rtmCardsUsed: 0,
-            // 6 - total retentions = remaining RTM opportunities
-            maxRtmCards: Math.max(0, 6 - p.retained.length),
+            // Capped at MAX_RTM_CARDS (2); fewer retentions grant more RTM cards up to that limit
+            maxRtmCards: Math.min(MAX_RTM_CARDS, Math.max(0, 6 - p.retained.length)),
         };
     });
 
