@@ -177,7 +177,18 @@ export async function fillRoomWithBots(code: string, count: number): Promise<str
 
     for (let i = 0; i < count && i < availableBots.length; i++) {
         const bot = availableBots[i];
-        const botId = `bot_${uuidv4().substring(0, 8)}`;
+
+        // Find or create bot user
+        const dbUser = await prisma.user.upsert({
+            where: { username: bot.username },
+            update: {},
+            create: {
+                id: `bot_${uuidv4().substring(0, 8)}`,
+                username: bot.username
+            }
+        });
+
+        const botId = dbUser.id;
 
         state.players.push({
             userId: botId,
@@ -186,19 +197,16 @@ export async function fillRoomWithBots(code: string, count: number): Promise<str
             teamName: bot.username
         });
 
-        // Create player in DB
-        await prisma.user.upsert({
-            where: { username: bot.username },
-            update: {},
-            create: { id: botId, username: bot.username }
-        });
-
+        // Add to room in DB
         await prisma.roomPlayer.create({
             data: { userId: botId, roomId: state.id }
         });
 
-        await prisma.team.create({
-            data: {
+        // Create team in DB
+        await prisma.team.upsert({
+            where: { userId_roomId: { userId: botId, roomId: state.id } },
+            update: { name: bot.username },
+            create: {
                 id: uuidv4(),
                 name: bot.username,
                 userId: botId,

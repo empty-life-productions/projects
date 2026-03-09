@@ -28,9 +28,11 @@ export async function POST(request: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     try {
-        const { action, roomCode, amount, execute } = await request.json();
+        const body = await request.json();
+        const { action, roomCode, amount, execute } = body;
 
         if (action === 'init') {
+            console.log(`[Auction] Initializing room ${roomCode}`);
             let room = await getRoomState(roomCode);
             if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
             if (room.hostId !== session.userId) {
@@ -40,6 +42,7 @@ export async function POST(request: NextRequest) {
             // Auto-fill bots to 10 players if needed
             if (room.players.length < 10) {
                 const missing = 10 - room.players.length;
+                console.log(`[Auction] Auto-filling ${missing} bots for room ${roomCode}`);
                 await fillRoomWithBots(roomCode, missing);
                 // Refresh room state after adding bots
                 const updatedRoom = await getRoomState(roomCode);
@@ -90,6 +93,7 @@ export async function POST(request: NextRequest) {
                 await saveAuctionState(roomCode, state);
             }
 
+            console.log(`[Auction] Room ${roomCode} initialized with ${state.totalPlayers} players in sets`);
             return NextResponse.json({ state });
         }
 
@@ -162,21 +166,26 @@ export async function POST(request: NextRequest) {
         }
 
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-    } catch (error) {
-        console.error('Auction error:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    } catch (error: any) {
+        console.error('[Auction POST Error]:', error);
+        return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
     }
 }
 
 export async function GET(request: NextRequest) {
-    const session = getSession(request);
-    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    try {
+        const session = getSession(request);
+        if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { searchParams } = new URL(request.url);
-    const roomCode = searchParams.get('roomCode');
-    if (!roomCode) return NextResponse.json({ error: 'Room code required' }, { status: 400 });
+        const { searchParams } = new URL(request.url);
+        const roomCode = searchParams.get('roomCode');
+        if (!roomCode) return NextResponse.json({ error: 'Room code required' }, { status: 400 });
 
-    const state = await getAuctionState(roomCode);
-    return NextResponse.json({ state });
+        const state = await getAuctionState(roomCode);
+        return NextResponse.json({ state });
+    } catch (error: any) {
+        console.error('[Auction GET Error]:', error);
+        return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+    }
 }
 

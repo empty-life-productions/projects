@@ -261,14 +261,15 @@ export async function getRetainedPlayerIds(roomCode: string): Promise<string[]> 
 // ─── getRetentionEligiblePool ─────────────────────────────────────────────────
 // Returns the eligible pool for a given team name, enriched with IPL_PLAYERS skill data
 export function getRetentionEligiblePool(teamName: string) {
-    const pool = RETENTION_POOL[teamName] ?? [];
+    const pool = (teamName && RETENTION_POOL[teamName]) ? RETENTION_POOL[teamName] : [];
     return pool.map(p => {
-        const iplPlayer = IPL_PLAYERS.find(ip => ip.name.toLowerCase() === p.name.toLowerCase());
+        if (!p) return null;
+        const iplPlayer = IPL_PLAYERS.find(ip => ip.name && p.name && ip.name.toLowerCase() === p.name.toLowerCase());
         return {
             ...p,
             playerId: iplPlayer?.id ?? null,
             battingSkill: iplPlayer?.battingSkill ?? 50,
             bowlingSkill: iplPlayer?.bowlingSkill ?? 50,
         };
-    });
+    }).filter(Boolean);
 }
