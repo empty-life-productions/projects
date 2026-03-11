@@ -391,6 +391,12 @@ export async function runBotRetentions(roomCode: string): Promise<void> {
             else if (skill >= 86 && team.retained.length < 3) shouldRetain = true;
             else if (isUncapped && skill >= 80 && team.retained.length < 5) shouldRetain = true;
 
+            // Enforce overseas limit
+            if (shouldRetain && player.nationality === 'Overseas') {
+                const overseasCount = team.retained.filter(r => r.nationality === 'Overseas').length;
+                if (overseasCount >= 2) shouldRetain = false;
+            }
+
             if (shouldRetain) {
                 // await result of retainPlayer
                 await retainPlayer(roomCode, team.userId, player.name);

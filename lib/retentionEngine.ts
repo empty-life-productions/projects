@@ -6,6 +6,7 @@ import { RETENTION_POOL } from '@/data/retentionPool';
 export const MAX_RETENTIONS = 6;
 export const MAX_CAPPED_RETENTIONS = 5;
 export const MAX_UNCAPPED_RETENTIONS = 2;
+export const MAX_OVERSEAS_RETENTIONS = 2;
 export const RETENTION_TIMER_SECONDS = 300; // 5 minutes
 export const CAPPED_RETENTION_COSTS = [18, 14, 11, 18, 14]; // Cr for capped slots
 export const UNCAPPED_RETENTION_COST = 4; // Cr flat for uncapped
@@ -145,6 +146,14 @@ export async function retainPlayer(
     }
     if (!isUncapped && cappedCount >= MAX_CAPPED_RETENTIONS) {
         return { success: false, error: `Maximum ${MAX_CAPPED_RETENTIONS} capped retentions allowed`, state };
+    }
+
+    // Overseas limit
+    if (eligible.nationality === 'Overseas') {
+        const overseasCount = team.retained.filter(r => r.nationality === 'Overseas').length;
+        if (overseasCount >= MAX_OVERSEAS_RETENTIONS) {
+            return { success: false, error: `Maximum ${MAX_OVERSEAS_RETENTIONS} overseas retentions allowed`, state };
+        }
     }
 
     // Already retained?
