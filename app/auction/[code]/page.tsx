@@ -134,8 +134,16 @@ export default function AuctionPage() {
             setAuction(data.state);
         });
 
+        socket.on('room_update', (data: { room: any }) => {
+            console.log('[Socket] Room updated:', data.room);
+            if (data.room.status === 'selection') {
+                router.push(`/selection/${code}`);
+            }
+        });
+
         return () => {
             socket.off('auction_update');
+            socket.off('room_update');
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [code, isLoggedIn]);
@@ -274,37 +282,26 @@ export default function AuctionPage() {
                             {auction && ` • Player ${auction.currentPlayerIndex} of ${auction.totalPlayers || 250}`}
                         </p>
                     </div>
-                    {auction?.status === 'completed' && (
+                    {auction?.status === 'completed' && isHost && (
                         <button
                             onClick={async () => {
                                 try {
-                                    // Update room status to 'selection'
+                                    // 1. Update room status to 'selection'
                                     await fetch(`/api/rooms/${code}`, {
                                         method: 'PATCH',
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ status: 'selection' }),
                                     });
 
-                                    // Auto-select playing 11 for bot teams
-                                    const botTeams = auction.teams.filter(t => t.userId !== userId);
-                                    for (const bot of botTeams) {
-                                        const topPlayers = [...bot.squad]
-                                            .sort((a, b) => b.soldPrice - a.soldPrice)
-                                            .slice(0, 11)
-                                            .map(s => s.player.id);
-
-                                        if (topPlayers.length === 11) {
-                                            await fetch('/api/selection', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({
-                                                    roomCode: code,
-                                                    teamId: bot.userId,
-                                                    selectedIds: topPlayers,
-                                                }),
-                                            });
-                                        }
-                                    }
+                                    // 2. Trigger robust bot auto-selection on the server
+                                    await fetch('/api/selection', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            roomCode: code,
+                                            action: 'autoSelectBots'
+                                        }),
+                                    });
 
                                     router.push(`/selection/${code}`);
                                 } catch (err) {

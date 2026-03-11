@@ -124,6 +124,9 @@ export async function POST(request: NextRequest) {
                 results[team.userId] = selectionData;
             }
 
+            const { emitToRoom } = await import('@/lib/socket-server');
+            emitToRoom(roomCode, 'selection_update', {});
+
             return NextResponse.json({ success: true, botSelections: results });
         }
 
@@ -152,22 +155,27 @@ export async function POST(request: NextRequest) {
 
         // If this is the initial selection (no fixtureId), check for global start
         if (!fixtureId) {
-            const keys = await redis.keys(`selection:${roomCode}:*`);
-            // filter out fixture-specific keys
-            const globalKeys = keys.filter((k: string) => k.split(':').length === 3);
-            if (globalKeys.length === 10) {
-                try {
-                    const url = new URL(`/api/league`, request.url);
-                    await fetch(url.toString(), {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Cookie': request.headers.get('cookie') || ''
-                        },
-                        body: JSON.stringify({ action: 'init', roomCode })
-                    });
-                } catch (err) {
-                    console.error('Failed to auto-init league:', err);
+            const auctionState = await getAuctionState(roomCode);
+            if (auctionState) {
+                const totalTeams = auctionState.teams.length;
+                const keys = await redis.keys(`selection:${roomCode}:*`);
+                // filter out fixture-specific keys
+                const globalKeys = keys.filter((k: string) => k.split(':').length === 3);
+
+                if (globalKeys.length >= totalTeams) {
+                    try {
+                        const url = new URL(`/api/league`, request.url);
+                        await fetch(url.toString(), {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Cookie': request.headers.get('cookie') || ''
+                            },
+                            body: JSON.stringify({ action: 'init', roomCode })
+                        });
+                    } catch (err) {
+                        console.error('Failed to auto-init league:', err);
+                    }
                 }
             }
         }

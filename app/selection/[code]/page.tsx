@@ -106,14 +106,28 @@ export default function SelectionPage() {
             }
 
             await fetchData();
+
+            const socket = await import('@/lib/socket').then(m => m.getSocket());
+            socket.emit('join-room', code);
+
+            socket.on('room_update', (data: { room: any }) => {
+                if (data.room.status === 'match' || data.room.status === 'league') {
+                    router.push(`/league/${code}`);
+                }
+            });
+
+            socket.on('selection_update', () => fetchData());
+
             setLoading(false);
+
+            return () => {
+                socket.off('room_update');
+                socket.off('selection_update');
+            };
         };
         init();
-
-        // Always poll for status updates
-        const interval = setInterval(fetchData, 2000);
-        return () => clearInterval(interval);
-    }, [isLoggedIn, code, userId, router, setUser, fetchData]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [code, isLoggedIn, fetchData]);
 
     const handleTogglePlayer = (playerId: string) => {
         if (isLocked) return;
