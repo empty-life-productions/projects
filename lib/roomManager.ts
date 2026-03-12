@@ -78,8 +78,10 @@ export async function joinRoom(code: string, userId: string, username: string): 
 
     // Sync to DB
     try {
-        await prisma.roomPlayer.create({
-            data: {
+        await prisma.roomPlayer.upsert({
+            where: { userId_roomId: { userId, roomId: state.id } },
+            update: {},
+            create: {
                 userId,
                 roomId: state.id
             }
@@ -214,22 +216,24 @@ export async function fillRoomWithBots(code: string, count: number): Promise<str
     for (let i = 0; i < count && i < availableBots.length; i++) {
         const bot = availableBots[i];
 
-        // Find or create bot user
-        let botId;
+        // Use deterministic ID for bots to prevent duplicates across retries/refreshes
+        const botId = getDeterministicId(bot.username);
+        
         try {
-            const dbUser = await prisma.user.upsert({
+            await prisma.user.upsert({
                 where: { username: bot.username },
                 update: {},
                 create: {
-                    id: `bot_${uuidv4().substring(0, 8)}`,
+                    id: botId,
                     username: bot.username
                 }
             });
-            botId = dbUser.id;
 
             // Add to room in DB
-            await prisma.roomPlayer.create({
-                data: { userId: botId, roomId: state.id }
+            await prisma.roomPlayer.upsert({
+                where: { userId_roomId: { userId: botId, roomId: state.id } },
+                update: {},
+                create: { userId: botId, roomId: state.id }
             });
 
             // Create team in DB
@@ -245,8 +249,7 @@ export async function fillRoomWithBots(code: string, count: number): Promise<str
                 }
             });
         } catch (err) {
-            console.error('Prisma fillRoomWithBots error, using fallback:', err);
-            botId = getDeterministicId(bot.username);
+            console.error('Prisma fillRoomWithBots error:', err);
         }
 
         state.players.push({
