@@ -1,7 +1,7 @@
 import redis from './redis';
 import { CricketPlayer, IPL_PLAYERS } from '@/data/players';
 import { analyzeSquadNeeds, canAddOverseas, getSquadComposition } from './squadUtils';
-import { getBotMaxHighBid } from './botEngine';
+import { getBotMaxHighBid, isBotUser } from './botEngine';
 
 // ======================================================
 // IPL-Style Auction Slot Definitions
@@ -488,7 +488,9 @@ export async function handleFinalMatch(roomCode: string, execute: boolean): Prom
  * Uses a "Second-Price" logic to determine a realistic final price and winner.
  */
 function simulateBiddingWar(player: CricketPlayer, state: AuctionState): { winner: AuctionTeam | null; price: number } {
-    const participants = state.teams.map(team => {
+    const participants = state.teams
+        .filter(team => isBotUser(team.username)) // Smart skip only sells to bots
+        .map(team => {
         // If team is the current high bidder, their "max" is at least the current bid
         const isCurrentHigh = state.currentBidder?.userId === team.userId;
         const botMax = getBotMaxHighBid(player, team);
