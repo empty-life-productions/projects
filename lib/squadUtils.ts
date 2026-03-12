@@ -47,15 +47,16 @@ export function analyzeSquadNeeds(squad: { player: CricketPlayer }[]): Record<st
 
     // Hard-coded minimums for a balanced 25-player squad
     const needs: Record<string, number> = {
-        WICKET_KEEPER: comp.wicketKeepers < 2 ? 3.0 : comp.wicketKeepers < 3 ? 1.5 : 0.3,
-        BATSMAN: comp.batsmen < 5 ? 2.0 : comp.batsmen < 8 ? 1.2 : 0.6,
-        BOWLER: comp.bowlers < 6 ? 2.0 : comp.bowlers < 9 ? 1.2 : 0.6,
-        ALL_ROUNDER: comp.allRounders < 3 ? 1.8 : comp.allRounders < 6 ? 1.1 : 0.5,
+        WICKET_KEEPER: comp.wicketKeepers < 1 ? 1.8 : comp.wicketKeepers < 2 ? 1.3 : 0.4,
+        BATSMAN: comp.batsmen < 4 ? 1.5 : comp.batsmen < 6 ? 1.1 : 0.6,
+        BOWLER: comp.bowlers < 5 ? 1.5 : comp.bowlers < 8 ? 1.1 : 0.6,
+        ALL_ROUNDER: comp.allRounders < 2 ? 1.4 : comp.allRounders < 5 ? 1.0 : 0.5,
     };
 
     // Density boost: if squad is short of minimum, strongly boost all roles
     if (comp.total < IPL_MIN_SQUAD) {
-        const densityFactor = 1.5 + (IPL_MIN_SQUAD - comp.total) * 0.08;
+        // Reduced intensity: was 1.5 + ... now 1.1 + ...
+        const densityFactor = 1.1 + (IPL_MIN_SQUAD - comp.total) * 0.04;
         Object.keys(needs).forEach(k => { needs[k] *= densityFactor; });
     }
 

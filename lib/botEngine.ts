@@ -42,7 +42,7 @@ function generatePersonality(teamName: string): BotPersonality {
 
     return {
         aggression,
-        maxOverpay: 2 + aggression * 2, // 3x to 4.6x base price
+        maxOverpay: 1.5 + aggression * 1.5, // 2.25x to 3.45x base price
         rolePreferences: {
             BATSMAN: 1.0,
             BOWLER: 1.0,
@@ -90,14 +90,21 @@ export function getBotMaxHighBid(
     const skill = Math.max(player.battingSkill, player.bowlingSkill);
     const maxBidRaw = Math.min(
         player.basePrice * personality.maxOverpay * fillScore,
-        availablePurse * 0.75 
+        availablePurse * 0.35 // Reduced from 0.75: cap single-player spend to 35% of purse
     );
 
-    // For low-skill players, cap the bid tightly
-    const skillCap = skill >= 85 ? maxBidRaw : Math.min(maxBidRaw, player.basePrice * 4);
+    // Smoother skill-based capping
+    // Above 90: full potential
+    // 85-90: slight cap
+    // 75-85: heavy cap
+    // Below 75: strict base-price based cap
+    let skillCap = maxBidRaw;
+    if (skill < 75) skillCap = Math.min(maxBidRaw, player.basePrice * 2.5);
+    else if (skill < 85) skillCap = Math.min(maxBidRaw, player.basePrice * 5);
+    else if (skill < 90) skillCap = Math.min(maxBidRaw, player.basePrice * 10);
     
     // Add a bit of randomness to max bid so bots don't always bid the exact same amount
-    const jitter = 0.9 + Math.random() * 0.2; // +/- 10%
+    const jitter = 0.95 + Math.random() * 0.1; // +/- 5% (tighter jitter)
     const finalMax = Math.max(player.basePrice, skillCap * jitter);
 
     return Math.floor(finalMax / BID_INCREMENT) * BID_INCREMENT;
