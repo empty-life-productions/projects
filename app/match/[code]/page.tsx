@@ -6,6 +6,10 @@ import { useUserStore } from '@/lib/store';
 import Navbar from '@/components/Navbar';
 import { getSocket } from '@/lib/socket';
 import PlayerAvatar from '@/components/PlayerAvatar';
+import { STADIUMS, getStadiumById } from '@/data/stadiums';
+import { getTeamByName } from '@/data/teams';
+import { CricketPlayer } from '@/data/players';
+import { StadiumCard } from '@/components/StadiumCard';
 
 interface MatchTeam {
     teamId: string;
@@ -100,6 +104,9 @@ interface MatchState {
     awayOpeningBowlerId?: string;
     firstInningsBattingOrder?: BatterState[];
     firstInningsBowlingOrder?: BowlerState[];
+    stadiumId?: string;
+    homeBattingOrder?: string[];
+    awayBattingOrder?: string[];
 }
 
 export default function MatchPage() {
@@ -306,7 +313,7 @@ export default function MatchPage() {
                     matchId: id,
                     homeTeam,
                     awayTeam,
-                    pitchType: 'BALANCED',
+                    pitchType: 'BALANCED', // Default, but API will override based on stadium city
                 }),
             });
             const data = await res.json();
@@ -423,7 +430,12 @@ export default function MatchPage() {
             <div className="min-h-screen" style={{ background: 'var(--color-bg-primary)' }}>
                 <Navbar />
                 <main className="max-w-lg mx-auto px-6 pt-24 pb-12 text-center">
-                    <h1 className="text-3xl font-black mb-8">🏏 The Toss</h1>
+                    <h1 className="text-3xl font-black mb-2">🪙 Toss Time!</h1>
+                    {fixtureId && (
+                        <p className="text-xs gold-text uppercase tracking-widest font-black mb-8 opacity-60">
+                            Match #{fixtureId.split('-')[1]} • Venue: Loading...
+                        </p>
+                    )}
 
                     {tossPhase === 'idle' && (
                         <div className="space-y-6">
@@ -541,6 +553,7 @@ export default function MatchPage() {
                             team={userTeam} 
                             onLock={handleLockSelection} 
                             isBattingFirst={(match.currentBatting === 'home' && isHome) || (match.currentBatting === 'away' && isAway)}
+                            stadiumId={match.stadiumId}
                         />
                     )}
                 </main>
@@ -790,10 +803,10 @@ export default function MatchPage() {
                                             Batting — {displayBattingTeam.name}
                                         </h3>
                                         <div className="space-y-1">
-                                            {displayBatting.filter(b => b.runs > 0 || b.balls > 0 || b.isOut).map((b, i) => (
+                                            {displayBatting.filter(b => b.runs > 0 || b.balls > 0 || b.isOut || b.player.id === match.striker?.player.id || b.player.id === match.nonStriker?.player.id).map((b, i) => (
                                                 <div key={i} className="flex items-center justify-between text-xs py-2 px-2.5 rounded-xl border border-white/[0.02]" style={{
-                                                    background: b.isOut ? 'rgba(239,68,68,0.03)' : (b === match.striker || b === match.nonStriker ? 'rgba(34,197,94,0.05)' : 'rgba(255,255,255,0.02)'),
-                                                    borderColor: b === match.striker || b === match.nonStriker ? 'rgba(34,197,94,0.1)' : undefined
+                                                    background: b.isOut ? 'rgba(239,68,68,0.03)' : (b.player.id === match.striker?.player.id || b.player.id === match.nonStriker?.player.id ? 'rgba(34,197,94,0.05)' : 'rgba(255,255,255,0.02)'),
+                                                    borderColor: b.player.id === match.striker?.player.id || b.player.id === match.nonStriker?.player.id ? 'rgba(34,197,94,0.1)' : undefined
                                                 }}>
                                                     <div className="flex-1 min-w-0 pr-2">
                                                         <div className="flex items-center gap-1">
@@ -801,7 +814,7 @@ export default function MatchPage() {
                                                                 {b.player.name}
                                                                 {b.player.isCaptain && <span className="text-yellow-400 text-[9px] ml-0.5" title="Captain">©</span>}
                                                             </span>
-                                                            {(b === match.striker || b === match.nonStriker) && <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />}
+                                                            {(b.player.id === match.striker?.player.id || b.player.id === match.nonStriker?.player.id) && <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />}
                                                         </div>
                                                         {b.isOut ? (
                                                             <p className="text-[9px] text-red-400/80 italic truncate">{b.dismissal}</p>
@@ -856,17 +869,21 @@ export default function MatchPage() {
                                         </h3>
                                         <div className="space-y-1">
                                             {/* Table Header */}
-                                            <div className="grid grid-cols-6 gap-1 px-2 mb-1 text-[8px] font-black text-white/20 uppercase tracking-tighter">
+                                            <div className="grid grid-cols-6 gap-2 px-2 mb-1 text-[8px] font-black text-white/20 uppercase tracking-tighter border-b border-white/5 pb-1">
                                                 <div className="col-span-2">Bowler</div>
                                                 <div className="text-center">O</div>
                                                 <div className="text-center">M</div>
                                                 <div className="text-center">R</div>
                                                 <div className="text-center">W</div>
                                             </div>
-                                            {displayBowling.filter(b => b.overs > 0 || b.overBalls > 0 || b === match.currentBowler).map((b, i) => (
-                                                <div key={i} className="grid grid-cols-6 gap-1 items-center text-[10px] py-1.5 px-2 rounded-lg bg-white/[0.02] border border-white/[0.01]">
+                                            {displayBowling.filter(b => b.overs > 0 || b.overBalls > 0 || b.player.id === match.currentBowler?.player.id).map((b, i) => (
+                                                <div key={i} className="grid grid-cols-6 gap-2 items-center text-[10px] py-2 px-2 rounded-lg bg-white/[0.02] border border-white/[0.01]" style={{
+                                                    borderColor: b.player.id === match.currentBowler?.player.id ? 'var(--color-gold-muted)' : undefined,
+                                                    background: b.player.id === match.currentBowler?.player.id ? 'rgba(212,175,55,0.05)' : undefined
+                                                }}>
                                                     <div className="col-span-2 truncate font-bold text-white/80">
                                                         {b.player.name}
+                                                        {b.player.id === match.currentBowler?.player.id && <span className="ml-1 text-[8px] gold-text">●</span>}
                                                     </div>
                                                     <div className="text-center font-medium text-white/60">{b.overs}.{b.overBalls}</div>
                                                     <div className="text-center font-medium text-white/60">{b.maidens}</div>
@@ -1066,11 +1083,13 @@ export default function MatchPage() {
 
 // --- Helper Components ---
 
-function MatchSelectionUI({ team, onLock, isBattingFirst }: { 
+function MatchSelectionUI({ team, onLock, isBattingFirst, stadiumId }: { 
     team: MatchTeam, 
     onLock: (s: any) => void,
-    isBattingFirst: boolean
+    isBattingFirst: boolean,
+    stadiumId?: string
 }) {
+    const stadium = stadiumId ? getStadiumById(stadiumId) : null;
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [captainId, setCaptainId] = useState('');
     const [wkId, setWkId] = useState('');
@@ -1117,6 +1136,8 @@ function MatchSelectionUI({ team, onLock, isBattingFirst }: {
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {stadium && <StadiumCard stadium={stadium} />}
+
             <div className="grid md:grid-cols-2 gap-8">
                 {/* Squad List */}
                 <div className="panel p-6">
@@ -1126,6 +1147,7 @@ function MatchSelectionUI({ team, onLock, isBattingFirst }: {
                             {selectedIds.length} / 11 SELECTED
                         </span>
                     </div>
+
                     <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                         {team.players.map(p => {
                             const isSelected = selectedIds.includes(p.id);

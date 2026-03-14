@@ -164,6 +164,8 @@ export interface MatchResult {
     awayBalls: number;
     result: string;
     winnerUserId: string | null; // null = tie
+    homePlayers: string[]; // List of all 11 player IDs
+    awayPlayers: string[]; // List of all 11 player IDs
     battingStats: { playerId: string; playerName: string; teamName: string; teamId?: string; runs: number; balls: number; fours: number; sixes: number; isOut: boolean }[];
     bowlingStats: { playerId: string; playerName: string; teamName: string; teamId?: string; overs: number; balls: number; runs: number; wickets: number }[];
 }
@@ -282,14 +284,25 @@ export function updatePlayerStats(state: LeagueState, matchResult: MatchResult):
         ps.runsConceded += bowl.runs;
     }
 
-    // Mark matches played (deduplicate via unique players per match)
-    const matchPlayers = new Set([
-        ...matchResult.battingStats.map(b => b.playerId),
-        ...matchResult.bowlingStats.map(b => b.playerId),
-    ]);
-    for (const pid of matchPlayers) {
-        const ps = state.playerStats.find(p => p.playerId === pid);
-        if (ps) ps.matches++;
+    // Mark matches played for all participants in the Playing XI
+    const participantIds = [...matchResult.homePlayers, ...matchResult.awayPlayers];
+    for (const pid of participantIds) {
+        let ps = state.playerStats.find(p => p.playerId === pid);
+        if (!ps) {
+            // Find player name from stats if possible, or fallback
+            const statSource = [...matchResult.battingStats, ...matchResult.bowlingStats].find(s => s.playerId === pid);
+            ps = {
+                playerId: pid,
+                playerName: statSource?.playerName || 'Unknown Player',
+                teamName: statSource?.teamName || 'Unknown Team',
+                teamId: statSource?.teamId,
+                matches: 0, runs: 0, balls: 0, fours: 0, sixes: 0,
+                wickets: 0, oversBowled: 0, runsConceded: 0, catches: 0,
+                impactScore: 0,
+            };
+            state.playerStats.push(ps);
+        }
+        ps.matches++;
     }
 
     // Recalculate impact scores
@@ -484,7 +497,9 @@ export async function syncMatchToLeague(roomCode: string, fixtureId: string, mat
                 teamName: b.player.teamName || (batting1st === 'home' ? matchState.homeTeam.name : matchState.awayTeam.name), // bowl 2nd = team 1
                 overs: b.overs, balls: b.overBalls, runs: b.runs, wickets: b.wickets
             }))
-        ]
+        ],
+        homePlayers: matchState.homeTeam.players.map((p: any) => p.id),
+        awayPlayers: matchState.awayTeam.players.map((p: any) => p.id)
     };
 
     fixture.status = 'completed';

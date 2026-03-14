@@ -701,10 +701,4 @@ export async function saveAuctionState(roomCode: string, state: AuctionState): P
     await redis.set(`auction:${roomCode}`, JSON.stringify(state), 'EX', 86400);
 }
 
-const BOT_USERNAMES_LOCAL = [
-    'Chennai Super Kings', 'Mumbai Indians', 'Royal Challengers Bengaluru', 'Kolkata Knight Riders',
-    'Delhi Capitals', 'Sunrisers Hyderabad', 'Punjab Kings', 'Rajasthan Royals',
-    'Lucknow Super Giants', 'Gujarat Titans',
-];
-
 export { BID_INCREMENT, BID_TIMER_SECONDS, INITIAL_PURSE, MAX_SQUAD_SIZE };

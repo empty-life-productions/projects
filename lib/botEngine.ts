@@ -3,6 +3,7 @@ import { CricketPlayer } from '@/data/players';
 import { getRoomState } from './roomManager';
 import { emitToRoom } from './socket-server';
 import type { MatchState, BatterState, BowlerState } from './matchEngine';
+import { isSpinner } from './matchEngine';
 import { getRetentionState, retainPlayer, confirmRetentions, getRetentionEligiblePool } from './retentionEngine';
 import { analyzeSquadNeeds, canAddOverseas, playerFillScore, getSquadComposition, IPL_MAX_SQUAD, IPL_MIN_SQUAD } from './squadUtils';
 
@@ -248,97 +249,88 @@ export function botSelectPlaying11(squad: EnrichedPlayer[], pitchType: string = 
     const indian = eligible.filter(p => p.nationality === 'Indian');
     const overseas = eligible.filter(p => p.nationality === 'Overseas');
 
-    const selected: EnrichedPlayer[] = [];
-    const pool = [...eligible];
-
-    // 1. Mandatory Wicket Keeper (Must pick 1)
-    const wks = pool.filter(p => p.role === 'WICKET_KEEPER').sort((a, b) => b.battingSkill - a.battingSkill);
+    let selected: EnrichedPlayer[] = [];
+    
+    // 1. Mandatory Wicket Keeper (Must pick 1, capped at 4 overseas total later)
+    const wks = [...eligible].filter(p => p.role === 'WICKET_KEEPER').sort((a, b) => b.battingSkill - a.battingSkill);
     const primaryWK = wks[0];
     if (primaryWK) {
         selected.push(primaryWK);
-        const idx = pool.findIndex(p => p.id === primaryWK.id);
-        if (idx > -1) pool.splice(idx, 1);
     }
 
-    // 2. Pitch-based Role Targets
-    let targetBatters = 4;
-    let targetBowlers = 4;
+    // 2. Target Composition: 1 WK, 4 specialist batters, 2-3 ARs, the rest bowlers
+    // Ensure 4 overseas limit
+    const getOverseasCount = (list: EnrichedPlayer[]) => list.filter(p => p.nationality === 'Overseas').length;
+
+    const batSpecialists = eligible.filter(p => p.role === 'BATSMAN' && !selected.find(s => s.id === p.id))
+        .sort((a, b) => b.battingSkill - a.battingSkill);
     
-    if (pitchType === 'BATTING') {
-        targetBatters = 5;
-        targetBowlers = 3;
-    } else if (pitchType === 'BOWLING' || pitchType === 'PACE' || pitchType === 'SPINNING') {
-        targetBatters = 3;
-        targetBowlers = 5;
-    }
-
-    // Sort remaining pool by primary skill
-    const getBestAvailableByRole = (role: string, max: number) => {
-        const matching = pool
-            .filter(p => p.role === role)
-            .sort((a, b) => Math.max(b.battingSkill, b.bowlingSkill) - Math.max(a.battingSkill, a.bowlingSkill));
+    const bowlSpecialists = eligible.filter(p => p.role === 'BOWLER' && !selected.find(s => s.id === p.id))
+        .sort((a, b) => b.bowlingSkill - a.bowlingSkill);
         
-        const picks: EnrichedPlayer[] = [];
-        for (const p of matching) {
-            if (picks.length >= max) break;
-            
-            // Check overseas limit (strictly 4)
-            const currentOverseas = selected.filter(s => s.nationality === 'Overseas').length + picks.filter(s => s.nationality === 'Overseas').length;
-            if (p.nationality === 'Overseas' && currentOverseas >= 4) continue;
+    const allRounders = eligible.filter(p => p.role === 'ALL_ROUNDER' && !selected.find(s => s.id === p.id))
+        .sort((a, b) => (b.battingSkill + b.bowlingSkill) - (a.battingSkill + a.bowlingSkill));
 
-            picks.push(p);
-        }
-        return picks;
-    };
-
-    // Pick specialized roles first
-    const topBatters = getBestAvailableByRole('BATSMAN', targetBatters);
-    selected.push(...topBatters);
-    topBatters.forEach(p => {
-        const idx = pool.findIndex(x => x.id === p.id);
-        if (idx > -1) pool.splice(idx, 1);
-    });
-
-    const topBowlers = getBestAvailableByRole('BOWLER', targetBowlers);
-    selected.push(...topBowlers);
-    topBowlers.forEach(p => {
-        const idx = pool.findIndex(x => x.id === p.id);
-        if (idx > -1) pool.splice(idx, 1);
-    });
-
-    // Fill remaining slots (usually All-rounders or best remaining)
-    // Sort pool by combined impact
-    pool.sort((a, b) => (b.battingSkill + b.bowlingSkill) - (a.battingSkill + a.bowlingSkill));
-
-    for (const p of pool) {
-        if (selected.length >= 11) break;
-
-        const currentOverseas = selected.filter(s => s.nationality === 'Overseas').length;
-        if (p.nationality === 'Overseas' && currentOverseas >= 4) continue;
-
+    // Fill Batters (total 5 including WK if WK is a good batter)
+    for (const p of batSpecialists) {
+        if (selected.filter(s => s.role === 'BATSMAN' || s.role === 'WICKET_KEEPER').length >= 5) break;
+        if (p.nationality === 'Overseas' && getOverseasCount(selected) >= 4) continue;
         selected.push(p);
     }
 
-    // Fallback: If we still don't have 11 (due to overseas logic filtering too much), just fill from Indians
-    if (selected.length < 11) {
-        const remainingIndians = eligible.filter(p => !selected.find(s => s.id === p.id) && p.nationality === 'Indian');
-        selected.push(...remainingIndians.slice(0, 11 - selected.length));
+    // Fill Bowlers (target at least 3-4 specialized)
+    for (const p of bowlSpecialists) {
+        if (selected.filter(s => s.role === 'BOWLER').length >= 4) break;
+        if (p.nationality === 'Overseas' && getOverseasCount(selected) >= 4) continue;
+        selected.push(p);
     }
 
-    // Batting Order Logic
-    const openers = selected.filter(p => p.role === 'BATSMAN' || p.role === 'WICKET_KEEPER').sort((a, b) => b.battingSkill - a.battingSkill);
-    const middleOrder = selected.filter(p => p.role === 'ALL_ROUNDER').sort((a, b) => b.battingSkill - a.battingSkill);
-    const tail = selected.filter(p => p.role === 'BOWLER').sort((a, b) => b.battingSkill - a.battingSkill);
+    // Fill All-Rounders (target 2)
+    for (const p of allRounders) {
+        if (selected.filter(s => s.role === 'ALL_ROUNDER').length >= 2) break;
+        if (p.nationality === 'Overseas' && getOverseasCount(selected) >= 4) continue;
+        selected.push(p);
+    }
 
-    const battingOrder = [...openers, ...middleOrder, ...tail].map(p => p.id);
+    // Fill remaining to 11 with best available
+    const remaining = eligible.filter(p => !selected.find(s => s.id === p.id))
+        .sort((a, b) => Math.max(b.battingSkill, b.bowlingSkill) - Math.max(a.battingSkill, a.bowlingSkill));
 
-    // Captain = Highest batting or bowling skill
+    for (const p of remaining) {
+        if (selected.length >= 11) break;
+        if (p.nationality === 'Overseas' && getOverseasCount(selected) >= 4) continue;
+        selected.push(p);
+    }
+
+    // Final fallback: fill with any Indian players if still under 11
+    if (selected.length < 11) {
+        const leftovers = eligible.filter(p => !selected.find(s => s.id === p.id));
+        selected.push(...leftovers.slice(0, 11 - selected.length));
+    }
+
+    // 3. Strategic Batting Order
+    // Positions:
+    // 1-2: Best pure batters / Openers
+    const openersPool = [...selected].sort((a, b) => b.battingSkill - a.battingSkill);
+    const pos1 = openersPool[0];
+    const pos2 = openersPool[1];
+    
+    // 3-5: Middle order anchors
+    const middlePool = openersPool.slice(2, 5);
+    
+    // 6-7: Finishers (All-rounders with good batting)
+    const finishers = [...selected].filter(p => p.role === 'ALL_ROUNDER' && !middlePool.includes(p) && p !== pos1 && p !== pos2)
+        .sort((a, b) => b.battingSkill - a.battingSkill);
+    
+    // 8-11: Tail
+    const tail = [...selected].filter(p => !finishers.includes(p) && !middlePool.includes(p) && p !== pos1 && p !== pos2)
+        .sort((a, b) => b.battingSkill - a.battingSkill);
+
+    const battingOrder = [pos1, pos2, ...middlePool, ...finishers, ...tail].map(p => p.id);
+
+    // Metadata
     const captain = [...selected].sort((a, b) => Math.max(b.battingSkill, b.bowlingSkill) - Math.max(a.battingSkill, a.bowlingSkill))[0];
-
-    // WK = best WICKET_KEEPER role, or best batter
-    const wk = selected.find(p => p.role === 'WICKET_KEEPER') || selected.sort((a, b) => b.battingSkill - a.battingSkill)[0];
-
-    // Opening Bowler = Best bowler by bowling skill
+    const wk = selected.find(p => p.role === 'WICKET_KEEPER') || selected[0];
     const openingBowler = selected.filter(p => p.role === 'BOWLER' || p.role === 'ALL_ROUNDER').sort((a, b) => b.bowlingSkill - a.bowlingSkill)[0];
 
     return {
@@ -361,79 +353,76 @@ export function botChooseNextBatter(state: MatchState): string | null {
     if (available.length === 0) return null;
 
     const phase = state.matchPhase;
-    const rrr = state.requiredRunRate || 0;
     const wicketsDown = (state.currentBatting === 'home' ? state.homeTeam.wickets : state.awayTeam.wickets);
 
     // Pick strategy based on state
-    const sorted = [...available].sort((a, b) => {
-        const skillA = a.player.battingSkill;
-        const skillB = b.player.battingSkill;
+    if (phase === 'powerplay' && wicketsDown >= 2) {
+        // CRISIS: Send the most solid "anchor" batter left (Highest batting skill)
+        const sorted = [...available].sort((a, b) => b.player.battingSkill - a.player.battingSkill);
+        return sorted[0].player.id;
+    }
 
-        // Death Overs + High RRR: Pick highest batting skill immediately (Power hitters)
-        if (phase === 'death' || rrr > 10) {
-            return skillB - skillA;
-        }
+    if (phase === 'death') {
+        // FINISH LINE: Send "Finishers" (All-rounders with good skills)
+        const sorted = [...available].sort((a, b) => {
+            if (a.player.role === 'ALL_ROUNDER' && b.player.role !== 'ALL_ROUNDER') return -1;
+            if (b.player.role === 'ALL_ROUNDER' && a.player.role !== 'ALL_ROUNDER') return 1;
+            return b.player.battingSkill - a.player.battingSkill;
+        });
+        return sorted[0].player.id;
+    }
 
-        // Early Wickets: Pick the most technically solid batter remaining (highest skill)
-        if (phase === 'powerplay' && wicketsDown >= 2) {
-            return skillB - skillA;
-        }
-
-        // Default: Follow the pre-set batting order (stable accumulation)
-        return 0; // Keeping sort order neutral as it's already ordered in state.battingOrder
-    });
-
-    return sorted[0].player.id;
+    // Default: Follow the pre-set batting order (stable accumulation)
+    return available[0].player.id;
 }
 
 export function botChooseNextBowler(state: MatchState): string | null {
+    // Basic eligibility: hasn't finished 4 overs and didn't bowl the last one
     const available = state.bowlingOrder.filter(
         (b: BowlerState) => b.overs < 4 && b.player.id !== state.lastBowlerId
     );
+    
     // Fallback if everyone else is exhausted but we have someone from the last over with overs left
     const pool = available.length > 0 ? available : state.bowlingOrder.filter(b => b.overs < 4);
-    
     if (pool.length === 0) return null;
 
     const phase = state.matchPhase;
-    const battingTeam = state.currentBatting === 'home' ? state.homeTeam : state.awayTeam;
 
+    // Sorting Logic based on Professional Strategy (Cricinfo Style)
     const sorted = [...pool].sort((a, b) => {
         const skillA = a.player.bowlingSkill;
         const skillB = b.player.bowlingSkill;
-        const roleA = a.player.role;
-        const roleB = b.player.role;
+        const spinnerA = isSpinner(a.player);
+        const spinnerB = isSpinner(b.player);
 
-        // Death Phase Logic (Overs 17-20)
-        // Strictly pick the absolute best bowlers (highest skill) regardless of role
-        if (phase === 'death') {
-            return skillB - skillA;
-        }
-
-        // Powerplay Phase Logic (Overs 0-6)
-        // Prefer PACE bowlers with high skill
+        // 1. Phase Specialization
         if (phase === 'powerplay') {
-            if (roleA === 'BOWLER' && roleB !== 'BOWLER') return -1;
-            if (roleB === 'BOWLER' && roleA !== 'BOWLER') return 1;
+            // Prefer PACE (non-spinners) in powerplay
+            if (!spinnerA && spinnerB) return -1;
+            if (spinnerA && !spinnerB) return 1;
+        } else if (phase === 'middle') {
+            // Prefer SPIN in middle overs, especially on spinning tracks
+            const spinTrack = state.pitchType === 'SPINNING';
+            if (spinTrack) {
+                if (spinnerA && !spinnerB) return -1;
+                if (!spinnerA && spinnerB) return 1;
+            } else {
+                // Regular middle: All-rounders or spinners
+                if (a.player.role === 'ALL_ROUNDER' && b.player.role === 'BOWLER') return -1;
+                if (b.player.role === 'ALL_ROUNDER' && a.player.role === 'BOWLER') return 1;
+            }
+        } else if (phase === 'death') {
+            // Death: Absolute best bowlers by skill
             return skillB - skillA;
         }
 
-        // Middle Overs Phase Logic (Overs 7-16)
-        // Prefer SPINNING assistance if pitch is spinning
-        if (state.pitchType === 'SPINNING') {
-            // Note: We don't have sub-roles "Spinner" here, so we default to skill weighting
-            return skillB - skillA;
-        }
-
-        // Rotation Management: Avoid 3rd consecutive over
-        // If they just bowled the previous over (overs count incremented in matchEngine)
-        // and we have others available, de-prioritize them slightly
-        const matchPerformanceA = a.overs > 0 ? (a.runs / a.overs) : 5; // Default 5 econ
-        const matchPerformanceB = b.overs > 0 ? (b.runs / b.overs) : 5;
-
-        // Weight: Skill (70%) vs match performance (30%)
-        const scoreA = skillA * 0.7 - matchPerformanceA * 0.3;
-        const scoreB = skillB * 0.7 - matchPerformanceB * 0.3;
+        // 2. Performance-based weight (prefer someone who hasn't been expensive)
+        const econA = a.overs > 0 ? (a.runs / a.overs) : 7.0;
+        const econB = b.overs > 0 ? (b.runs / b.overs) : 7.0;
+        
+        // Final tie-breaker: overall skill
+        const scoreA = skillA - (econA * 2);
+        const scoreB = skillB - (econB * 2);
 
         return scoreB - scoreA;
     });

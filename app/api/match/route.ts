@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
             // Fetch selections from Redis if they exist (for bots or pre-match flow)
             let homeSelection = body.homeSelection;
             let awaySelection = body.awaySelection;
+            let stadiumId = body.stadiumId;
 
             if (fixtureId && rCode) {
                 const leagueState = await getLeagueState(rCode);
@@ -64,6 +65,17 @@ export async function POST(request: NextRequest) {
 
                     const homeLeagueTeam = teams.find(t => t.userId === fixture.homeTeamUserId);
                     const awayLeagueTeam = teams.find(t => t.userId === fixture.awayTeamUserId);
+
+                    // Map Stadium based on home team city
+                    if (!stadiumId && homeLeagueTeam?.teamName) {
+                        const { STADIUMS } = require('@/data/stadiums');
+                        const { getTeamByName } = require('@/data/teams');
+                        const team = getTeamByName(homeLeagueTeam.teamName);
+                        if (team) {
+                            const stadium = STADIUMS.find((s: any) => s.city === team.city);
+                            if (stadium) stadiumId = stadium.id;
+                        }
+                    }
 
                     const mapToMatchTeam = (leagueTeam: any, selection: any) => {
                         let playingSquad = leagueTeam.squad;
@@ -112,6 +124,7 @@ export async function POST(request: NextRequest) {
                 awayWkId: awaySelection?.wkId,
                 homeOpeningBowlerId: homeSelection?.openingBowlerId,
                 awayOpeningBowlerId: awaySelection?.openingBowlerId,
+                stadiumId,
             });
 
             // Auto-lock for bots
@@ -182,6 +195,12 @@ export async function POST(request: NextRequest) {
                 state.awayOpeningBowlerId = openingBowlerId;
             }
 
+            if (isHome) {
+                state.homeBattingOrder = selectedIds;
+            } else {
+                state.awayBattingOrder = selectedIds;
+            }
+
             // Sync players to battingOrder and bowlingOrder
             // This is critical because processNextBall uses these orders.
             // We need to re-run the parts of initMatchState that setup these orders.
@@ -198,6 +217,9 @@ export async function POST(request: NextRequest) {
                     awayWkId: state.awayWkId,
                     homeOpeningBowlerId: state.homeOpeningBowlerId,
                     awayOpeningBowlerId: state.awayOpeningBowlerId,
+                    homeBattingOrder: state.homeBattingOrder,
+                    awayBattingOrder: state.awayBattingOrder,
+                    stadiumId: state.stadiumId,
                 });
                 finalState.homeLocked = true;
                 finalState.awayLocked = true;
