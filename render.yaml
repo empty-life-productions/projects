@@ -21,6 +21,8 @@ services:
         generateValue: true
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=450
 
 databases:
   - name: dugout-db

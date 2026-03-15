@@ -243,21 +243,30 @@ function oversToBalls(overs: number, extraBalls: number): number {
 // ======================================================
 
 export function updatePlayerStats(state: LeagueState, matchResult: MatchResult): void {
-    // Update batting stats
-    for (const bat of matchResult.battingStats) {
-        let ps = state.playerStats.find(p => p.playerId === bat.playerId);
+    // Use a Map for O(1) lookups during the update
+    const statsMap = new Map(state.playerStats.map(p => [p.playerId, p]));
+
+    const getOrCreateStat = (playerId: string, playerName: string, teamName: string, teamId?: string) => {
+        let ps = statsMap.get(playerId);
         if (!ps) {
             ps = {
-                playerId: bat.playerId,
-                playerName: bat.playerName,
-                teamName: bat.teamName,
-                teamId: bat.teamId,
+                playerId,
+                playerName,
+                teamName,
+                teamId,
                 matches: 0, runs: 0, balls: 0, fours: 0, sixes: 0,
                 wickets: 0, oversBowled: 0, runsConceded: 0, catches: 0,
                 impactScore: 0,
             };
             state.playerStats.push(ps);
+            statsMap.set(playerId, ps);
         }
+        return ps;
+    };
+
+    // Update batting stats
+    for (const bat of matchResult.battingStats) {
+        const ps = getOrCreateStat(bat.playerId, bat.playerName, bat.teamName, bat.teamId);
         ps.runs += bat.runs;
         ps.balls += bat.balls;
         ps.fours += bat.fours;
@@ -266,19 +275,7 @@ export function updatePlayerStats(state: LeagueState, matchResult: MatchResult):
 
     // Update bowling stats
     for (const bowl of matchResult.bowlingStats) {
-        let ps = state.playerStats.find(p => p.playerId === bowl.playerId);
-        if (!ps) {
-            ps = {
-                playerId: bowl.playerId,
-                playerName: bowl.playerName,
-                teamName: bowl.teamName,
-                teamId: bowl.teamId,
-                matches: 0, runs: 0, balls: 0, fours: 0, sixes: 0,
-                wickets: 0, oversBowled: 0, runsConceded: 0, catches: 0,
-                impactScore: 0,
-            };
-            state.playerStats.push(ps);
-        }
+        const ps = getOrCreateStat(bowl.playerId, bowl.playerName, bowl.teamName, bowl.teamId);
         ps.wickets += bowl.wickets;
         ps.oversBowled += Math.floor(bowl.overs) * 6 + bowl.balls;
         ps.runsConceded += bowl.runs;
@@ -287,20 +284,12 @@ export function updatePlayerStats(state: LeagueState, matchResult: MatchResult):
     // Mark matches played for all participants in the Playing XI
     const participantIds = [...matchResult.homePlayers, ...matchResult.awayPlayers];
     for (const pid of participantIds) {
-        let ps = state.playerStats.find(p => p.playerId === pid);
+        // We might not have names for players who didn't bat/bowl yet, so try to find them in the stats if they exist
+        let ps = statsMap.get(pid);
         if (!ps) {
-            // Find player name from stats if possible, or fallback
-            const statSource = [...matchResult.battingStats, ...matchResult.bowlingStats].find(s => s.playerId === pid);
-            ps = {
-                playerId: pid,
-                playerName: statSource?.playerName || 'Unknown Player',
-                teamName: statSource?.teamName || 'Unknown Team',
-                teamId: statSource?.teamId,
-                matches: 0, runs: 0, balls: 0, fours: 0, sixes: 0,
-                wickets: 0, oversBowled: 0, runsConceded: 0, catches: 0,
-                impactScore: 0,
-            };
-            state.playerStats.push(ps);
+            // This case shouldn't happen often if the squads are correctly initialized, 
+            // but we fallback to unknown if they are truly missing from both batting/bowling stats
+            ps = getOrCreateStat(pid, 'Unknown Player', 'Unknown Team');
         }
         ps.matches++;
     }
