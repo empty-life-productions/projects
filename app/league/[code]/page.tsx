@@ -51,7 +51,55 @@ interface LeagueState {
     mvp: { playerId: string; playerName: string; teamName: string; impactScore: number } | null;
 }
 
+interface LeaderboardData {
+    orangeCap: any[];
+    purpleCap: any[];
+    mvp: any[];
+    highestScores: any[];
+    boundaries: any[];
+    sixes: any[];
+    catches: any[];
+    bestBowling: any[];
+    economy: any[];
+    strikeRate: any[];
+    centuries: any[];
+    halfCenturies: any[];
+}
+
 type Tab = 'standings' | 'fixtures' | 'awards';
+
+function StatTable({ title, data, valueKey, label, color, limit, formatValue }: any) {
+    return (
+        <div className="panel flex flex-col h-full" style={{ borderLeft: `3px solid ${color}` }}>
+            <h3 className="text-[10px] font-bold tracking-widest uppercase mb-4" style={{ color }}>{title}</h3>
+            {data.length > 0 ? (
+                <div className="space-y-3 flex-1">
+                    {data.slice(0, limit).map((ps: any, i: number) => (
+                        <div key={ps.playerId} className="flex items-center justify-between gap-2 group">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-[10px] font-mono opacity-30 w-3">{i + 1}</span>
+                                <div className="truncate">
+                                    <p className="text-xs font-bold leading-none truncate group-hover:text-gold transition-colors">{ps.playerName}</p>
+                                    <p className="text-[9px] opacity-40 truncate">{ps.teamName}</p>
+                                </div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                                <p className="text-xs font-black font-mono" style={{ color }}>
+                                    {formatValue ? formatValue(ps) : ps[valueKey]}
+                                </p>
+                                <p className="text-[8px] font-bold opacity-30 tracking-tighter">{label}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="flex-1 flex items-center justify-center opacity-20 italic text-[10px]">
+                    No data available
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function LeaguePage() {
     const params = useParams();
@@ -70,6 +118,8 @@ export default function LeaguePage() {
         awayTeam: string;
         isUserPlaying: boolean;
     } | null>(null);
+    const [leaderboard, setLeaderboard] = useState<LeaderboardData | null>(null);
+    const [fetchingLeaderboard, setFetchingLeaderboard] = useState(false);
 
     const fetchLeague = useCallback(async () => {
         try {
@@ -106,6 +156,28 @@ export default function LeaguePage() {
         };
         init();
     }, [isLoggedIn, code, router, setUser, fetchLeague]);
+
+    const fetchLeaderboard = useCallback(async () => {
+        if (fetchingLeaderboard) return;
+        setFetchingLeaderboard(true);
+        try {
+            const res = await fetch(`/api/league/leaderboard?roomCode=${code}`);
+            if (res.ok) {
+                const data = await res.json();
+                setLeaderboard(data);
+            }
+        } catch (err) {
+            console.error('Failed to fetch leaderboard:', err);
+        } finally {
+            setFetchingLeaderboard(false);
+        }
+    }, [code, fetchingLeaderboard]);
+
+    useEffect(() => {
+        if (activeTab === 'awards' && !leaderboard) {
+            fetchLeaderboard();
+        }
+    }, [activeTab, leaderboard, fetchLeaderboard]);
 
     useEffect(() => {
         const socket = getSocket();
@@ -514,89 +586,122 @@ export default function LeaguePage() {
                 }
 
                 {/* ─── AWARDS TAB ─── */}
-                {
-                    activeTab === 'awards' && (
-                        <div className="space-y-6">
-                            {/* Orange Cap Detail */}
-                            <div className="panel-gold">
-                                <h3 className="text-sm font-semibold tracking-wider uppercase mb-4" style={{ color: '#FF6B00' }}>
-                                    🧢 Orange Cap — Most Runs
-                                </h3>
-                                {league.orangeCap ? (
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl" style={{ background: '#FF6B0015' }}>
-                                                🏏
-                                            </div>
-                                            <div>
-                                                <p className="text-lg font-bold text-white">{league.orangeCap.playerName}</p>
-                                                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{league.orangeCap.teamName}</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-2xl font-bold" style={{ color: '#FF6B00' }}>{league.orangeCap.runs}</p>
-                                            <p className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>RUNS</p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>No matches played yet</p>
-                                )}
-                            </div>
+                {activeTab === 'awards' && (
+                    <div className="space-y-8">
+                        {/* Primary Caps (Horizontal Scroll or Grid) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <StatTable 
+                                title="🧢 Orange Cap (Most Runs)"
+                                data={leaderboard?.orangeCap || []}
+                                valueKey="runs"
+                                label="RUNS"
+                                color="#FF6B00"
+                                limit={10}
+                            />
+                            <StatTable 
+                                title="🧢 Purple Cap (Most Wickets)"
+                                data={leaderboard?.purpleCap || []}
+                                valueKey="wickets"
+                                label="WICKETS"
+                                color="#8B5CF6"
+                                limit={10}
+                            />
+                            <StatTable 
+                                title="⭐ Most Valuable Player"
+                                data={leaderboard?.mvp || []}
+                                valueKey="impactScore"
+                                label="IMPACT"
+                                color="var(--color-gold)"
+                                limit={10}
+                            />
+                        </div>
 
-                            {/* Purple Cap Detail */}
-                            <div className="panel" style={{ border: '1px solid rgba(139, 92, 246, 0.2)', background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.05), transparent)' }}>
-                                <h3 className="text-sm font-semibold tracking-wider uppercase mb-4" style={{ color: '#8B5CF6' }}>
-                                    🧢 Purple Cap — Most Wickets
-                                </h3>
-                                {league.purpleCap ? (
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl" style={{ background: '#8B5CF615' }}>
-                                                🎯
-                                            </div>
-                                            <div>
-                                                <p className="text-lg font-bold text-white">{league.purpleCap.playerName}</p>
-                                                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{league.purpleCap.teamName}</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-2xl font-bold" style={{ color: '#8B5CF6' }}>{league.purpleCap.wickets}</p>
-                                            <p className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>WICKETS</p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>No matches played yet</p>
-                                )}
-                            </div>
+                        {/* Secondary Stat Grids (Top 5s) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <StatTable 
+                                title="🔥 Highest Scores"
+                                data={leaderboard?.highestScores || []}
+                                valueKey="highestScore"
+                                label="RUNS"
+                                color="#EC4899"
+                                limit={5}
+                            />
+                            <StatTable 
+                                title="🏏 Boundaries (4s)"
+                                data={leaderboard?.boundaries || []}
+                                valueKey="fours"
+                                label="FOURS"
+                                color="#10B981"
+                                limit={5}
+                            />
+                            <StatTable 
+                                title="🚀 Sixes (6s)"
+                                data={leaderboard?.sixes || []}
+                                valueKey="sixes"
+                                label="SIXES"
+                                color="#3B82F6"
+                                limit={5}
+                            />
+                            <StatTable 
+                                title="🧤 Most Catches"
+                                data={leaderboard?.catches || []}
+                                valueKey="catches"
+                                label="CATCHES"
+                                color="#F59E0B"
+                                limit={5}
+                            />
+                        </div>
 
-                            {/* MVP Detail */}
-                            <div className="panel-gold">
-                                <h3 className="text-sm font-semibold tracking-wider uppercase mb-4 gold-text">
-                                    ⭐ Most Valuable Player
-                                </h3>
-                                {league.mvp ? (
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl bg-gold/10">
-                                                🌟
-                                            </div>
-                                            <div>
-                                                <p className="text-lg font-bold text-white">{league.mvp.playerName}</p>
-                                                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{league.mvp.teamName}</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-2xl font-bold gold-text">{league.mvp.impactScore}</p>
-                                            <p className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>IMPACT</p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>No matches played yet</p>
-                                )}
+                        {/* Bowling & Rate Grids */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <StatTable 
+                                title="🎯 Best Bowling"
+                                data={leaderboard?.bestBowling || []}
+                                valueKey="bestBowling"
+                                label="FIG"
+                                color="#F43F5E"
+                                limit={5}
+                                formatValue={(ps: any) => `${ps.bestBowlingWickets}/${ps.bestBowlingRuns}`}
+                            />
+                            <StatTable 
+                                title="📉 Best Economy"
+                                data={leaderboard?.economy || []}
+                                valueKey="economy"
+                                label="ECON"
+                                color="#A855F7"
+                                limit={5}
+                                formatValue={(ps: any) => ((ps.runsConceded / ps.oversBowled) * 6).toFixed(2)}
+                            />
+                            <StatTable 
+                                title="⚡ Strike Rate"
+                                data={leaderboard?.strikeRate || []}
+                                valueKey="strikeRate"
+                                label="S/R"
+                                color="#0EA5E9"
+                                limit={5}
+                                formatValue={(ps: any) => ((ps.runs / ps.balls) * 100).toFixed(2)}
+                            />
+                            <div className="space-y-4">
+                                <StatTable 
+                                    title="💯 Centuries (100s)"
+                                    data={leaderboard?.centuries || []}
+                                    valueKey="centuries"
+                                    label="100s"
+                                    color="#FFD700"
+                                    limit={3}
+                                />
+                                <StatTable 
+                                    title="半 Half-Centuries (50s)"
+                                    data={leaderboard?.halfCenturies || []}
+                                    valueKey="halfCenturies"
+                                    label="50s"
+                                    color="#C0C0C0"
+                                    limit={3}
+                                />
                             </div>
                         </div>
-                    )
-                }
+                    </div>
+                )}
 
                 {/* League Complete Banner */}
                 {

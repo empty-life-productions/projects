@@ -60,6 +60,11 @@ export interface PlayerStats {
     oversBowled: number; // in balls
     runsConceded: number;
     catches: number;
+    highestScore: number;
+    centuries: number;
+    halfCenturies: number;
+    bestBowlingWickets: number;
+    bestBowlingRuns: number;
     impactScore: number;
 }
 
@@ -256,6 +261,8 @@ export function updatePlayerStats(state: LeagueState, matchResult: MatchResult):
                 teamId,
                 matches: 0, runs: 0, balls: 0, fours: 0, sixes: 0,
                 wickets: 0, oversBowled: 0, runsConceded: 0, catches: 0,
+                highestScore: 0, centuries: 0, halfCenturies: 0,
+                bestBowlingWickets: 0, bestBowlingRuns: 0,
                 impactScore: 0,
             };
             state.playerStats.push(ps);
@@ -271,6 +278,11 @@ export function updatePlayerStats(state: LeagueState, matchResult: MatchResult):
         ps.balls += bat.balls;
         ps.fours += bat.fours;
         ps.sixes += bat.sixes;
+
+        // Update high score & milestones
+        if (bat.runs > ps.highestScore) ps.highestScore = bat.runs;
+        if (bat.runs >= 100) ps.centuries++;
+        else if (bat.runs >= 50) ps.halfCenturies++;
     }
 
     // Update bowling stats
@@ -279,6 +291,19 @@ export function updatePlayerStats(state: LeagueState, matchResult: MatchResult):
         ps.wickets += bowl.wickets;
         ps.oversBowled += Math.floor(bowl.overs) * 6 + bowl.balls;
         ps.runsConceded += bowl.runs;
+
+        // Update best bowling spell
+        if (bowl.wickets > ps.bestBowlingWickets) {
+            ps.bestBowlingWickets = bowl.wickets;
+            ps.bestBowlingRuns = bowl.runs;
+        } else if (bowl.wickets === ps.bestBowlingWickets && bowl.runs < ps.bestBowlingRuns) {
+            // Tie-break: fewer runs
+            ps.bestBowlingRuns = bowl.runs;
+        } else if (ps.bestBowlingWickets === 0 && ps.bestBowlingRuns === 0) {
+            // Initial assignment
+            ps.bestBowlingWickets = bowl.wickets;
+            ps.bestBowlingRuns = bowl.runs;
+        }
     }
 
     // Mark matches played for all participants in the Playing XI

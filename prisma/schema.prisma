@@ -91,6 +91,11 @@ model PlayerLeagueStats {
   oversBowled   Float  @default(0)
   runsConceded  Int    @default(0)
   catches       Int    @default(0)
+  highestScore  Int    @default(0)
+  centuries     Int    @default(0)
+  halfCenturies Int    @default(0)
+  bestBowlingWickets Int @default(0)
+  bestBowlingRuns    Int @default(0)
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
